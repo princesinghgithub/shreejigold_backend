@@ -39,6 +39,9 @@ export const config = {
   // लॉगिन पर कितनी गलत कोशिशें, कितने मिनट में
   loginMaxAttempts: Number(process.env.LOGIN_MAX_ATTEMPTS || 20),
   loginWindowMinutes: Number(process.env.LOGIN_WINDOW_MINUTES || 15),
+  // बाहर (लॉगिन स्क्रीन / API) से पहला खाता बनाना — बंद. मालिक का खाता `npm run seed:admin` से,
+  // बाकी users अंदर "Users / Staff" पेज से. सिर्फ टेस्ट के लिए ALLOW_SETUP=true
+  allowSetup: bool(process.env.ALLOW_SETUP, false),
   // पासवर्ड भूलने पर OTP वाला email. BREVO_API_KEY हो तो Brevo, वरना SMTP (Gmail).
   mail: {
     brevoApiKey: (process.env.BREVO_API_KEY || '').trim(),

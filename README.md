@@ -155,7 +155,9 @@ Atlas हमेशा replica set होता है, वहाँ यह अ�
 यूज़र ID वाले **email पर OTP** (Brevo या Gmail से), या **सुरक्षा सवाल** से नया पासवर्ड बन जाता है
 (डेटा कुछ नहीं मिटता).
 
-1. पहली बार: `POST /api/auth/setup` — यूज़र ID, पासवर्ड, सुरक्षा सवाल और उसका जवाब
+1. पहली बार: मालिक का खाता टर्मिनल से — `npm run seed:admin` (`.env` के `ADMIN_USER_ID` / `ADMIN_PASSWORD`).
+   लॉगिन स्क्रीन पर कोई register फॉर्म नहीं है, और `POST /api/auth/setup` बंद रहता है (403) —
+   सिर्फ `ALLOW_SETUP=true` पर खुलता है, जो टेस्ट के लिए है. बाकी users अंदर **Users / Staff** पेज से बनते हैं
 2. उसके बाद: `POST /api/auth/login` — यूज़र ID + पासवर्ड → `{ token }`
 3. `/api/auth/*` को छोड़कर हर request में यह header लगाना है:
 

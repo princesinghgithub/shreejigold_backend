@@ -8,6 +8,7 @@ import {
 } from '../lib/schemas.js';
 import * as auth from '../services/auth.js';
 import { asyncHandler } from '../lib/helpers.js';
+import { forbidden } from '../lib/errors.js';
 import { rateLimit, clearRateLimit } from '../middleware/rateLimit.js';
 import { config } from '../config.js';
 
@@ -28,7 +29,13 @@ router.get('/status', asyncHandler(async (_req, res) => {
   });
 }));
 
-router.post('/setup', loginLimit, validate(setupSchema), asyncHandler(async (req, res) => {
+// बाहर से खाता बनाना बंद — वरना डेटाबेस खाली होने पर कोई भी मालिक बन जाता.
+// मालिक का खाता: `npm run seed:admin`. बाकी users: अंदर "Users / Staff" पेज. (ALLOW_SETUP=true सिर्फ टेस्ट में)
+router.post('/setup', (_req, _res, next) => (
+  config.allowSetup
+    ? next()
+    : next(forbidden('यहाँ से नया खाता नहीं बनता — मालिक का खाता backend में "npm run seed:admin" से बनता है, बाकी users अंदर Users पेज से'))
+), loginLimit, validate(setupSchema), asyncHandler(async (req, res) => {
   res.status(201).json(await auth.setup(req.body));
 }));
 

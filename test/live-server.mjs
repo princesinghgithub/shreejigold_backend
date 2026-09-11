@@ -12,6 +12,7 @@ process.env.LOG_REQUESTS = 'false';
 process.env.JWT_SECRET = 'e2e-secret';
 process.env.CRON_SECRET = 'e2e-cron';
 process.env.AUTO_BACKUP = 'false';
+process.env.ALLOW_SETUP = 'true'; // अस्थायी डेटाबेस में पहला खाता API से बन सके
 
 const { createApp } = await import('../src/app.js');
 const server = createApp().listen(Number(port), () => {

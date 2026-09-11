@@ -10,6 +10,7 @@ process.env.AUTO_BACKUP = 'false';
 process.env.CRON_SECRET = 'test-cron-secret';
 process.env.WEB_DIR = './__no_web__';
 process.env.MAIL_TRANSPORT = 'json'; // असली email नहीं जाता — mailer.js के outbox में जमा होता है
+process.env.ALLOW_SETUP = 'true'; // टेस्ट का खाता /auth/setup से बनता है (असली ऐप में यह बंद रहता है)
 
 const { createApp } = await import('../src/app.js');
 const app = createApp();
