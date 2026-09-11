@@ -108,7 +108,7 @@ export const DEFAULT_SETTINGS = {
   shopAddress: 'शाहपुर रोड, शांति नगर, खतखरी, तिवारी होटल के बगल में',
   shopPhone: '9131154535',
   shopPhone2: '7049749596',
-  gstin: '',
+  gstin: '23KNFPS7175N1Z2',
   jurisdiction: 'Mauganj',
   categories: 'GOLD | DIAMOND | SILVER | GEMS | GOLD LOAN',
   hsn: '7113',
@@ -117,6 +117,9 @@ export const DEFAULT_SETTINGS = {
   billTemplate: 'slip',
   // दुकान की website — भरा हो तो बिल पर QR छपता है, जिसे स्कैन करके ग्राहक बिल जाँच सके
   websiteUrl: '',
+  // दुकान का UPI — भरा हो तो हर बिल पर "UPI से भुगतान" वाला QR छपता है
+  upiId: 'dhirendrasoni1292@okicici',
+  upiName: 'Dhirendra Soni',
 };
 
 export const DEFAULT_RATES = { gold: 0, silver: 0, updatedAt: null };

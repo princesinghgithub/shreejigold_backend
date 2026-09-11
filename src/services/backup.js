@@ -3,7 +3,7 @@ import { Customer, Stock, Invoice, Offer, Backup } from '../models/index.js';
 import { getRates, getSettings } from './shop.js';
 import { listCustomers, createCustomer } from './customers.js';
 import { listStock, createStockItem } from './stock.js';
-import { listInvoices, insertRawInvoice } from './invoices.js';
+import { listInvoices, insertRawInvoice, syncCounters } from './invoices.js';
 import { listOffers, createOffer } from './offers.js';
 import { num, round2, uid } from '../lib/helpers.js';
 import { config } from '../config.js';
@@ -46,6 +46,8 @@ export async function importAll(data) {
   }
   for (const s of data.stock || []) await createStockItem(s);
   for (const inv of data.invoices || []) await insertRawInvoice(inv);
+  // backup के बिल नंबर से आगे गिनती चले — अगला बिल किसी पुराने नंबर पर न छपे
+  await syncCounters();
   for (const o of data.offers || []) await createOffer(o);
 
   return summary();

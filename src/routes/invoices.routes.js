@@ -6,7 +6,7 @@ import { asyncHandler } from '../lib/helpers.js';
 
 const router = Router();
 
-// ?from=&to=&type=sale|purchase&gstMode=gst|nongst&customerId=&search=&limit=&offset=
+// ?from=&to=&type=sale|purchase&gstMode=gst|nongst&customerId=&billNo=&search=&limit=&offset=
 router.get('/', asyncHandler(async (req, res) => {
   res.json(await invoices.listInvoices(req.query));
 }));
@@ -25,7 +25,7 @@ router.post('/', validate(invoiceCreateSchema), asyncHandler(async (req, res) =>
 }));
 
 router.post('/:id/payment', validate(paymentSchema), asyncHandler(async (req, res) => {
-  res.json(await invoices.recordPayment(req.params.id, req.body.amount, req.body.note));
+  res.json(await invoices.recordPayment(req.params.id, req.body.amount, req.body.note, req.body.mode));
 }));
 
 router.delete('/:id', asyncHandler(async (req, res) => {

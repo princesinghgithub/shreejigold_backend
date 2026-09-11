@@ -28,6 +28,19 @@ export function escapeRegex(s) {
   return String(s).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+/** "2026-09-11" → "2026-27" (अप्रैल से मार्च) */
+export function fyOf(date) {
+  const y = Number(String(date).slice(0, 4));
+  const m = Number(String(date).slice(5, 7));
+  const start = m >= 4 ? y : y - 1;
+  return `${start}-${String((start + 1) % 100).padStart(2, '0')}`;
+}
+
+/** बिल पर छपा नंबर — पुराने बिलों में billNo नहीं, तब id के आखिरी 6 अक्षर */
+export function billNoOf(inv) {
+  return inv.billNo || String(inv.id || inv._id || '').slice(-6).toUpperCase();
+}
+
 export function num(v, fallback = 0) {
   const n = Number(v);
   return Number.isFinite(n) ? n : fallback;

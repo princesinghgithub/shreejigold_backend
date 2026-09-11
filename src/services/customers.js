@@ -16,6 +16,7 @@ function toCustomer(d) {
     name: d.name,
     phone: d.phone || '',
     address: d.address || '',
+    pan: d.pan || '',
     balance: round2(d.balance || 0),
     ledger: (d.ledger || []).map((l) => ({
       id: l.id,
@@ -80,6 +81,7 @@ export async function createCustomer(input, session = null) {
     name: String(input.name).trim(),
     phone: input.phone || '',
     address: input.address || '',
+    pan: input.pan ? String(input.pan).trim().toUpperCase() : '',
     ledger,
     balance: sumLedger(ledger),
     createdAt: input.createdAt || now,
@@ -93,6 +95,7 @@ export async function updateCustomer(id, input) {
   if (input.name !== undefined) set.name = input.name.trim();
   if (input.phone !== undefined) set.phone = input.phone;
   if (input.address !== undefined) set.address = input.address;
+  if (input.pan !== undefined) set.pan = String(input.pan).trim().toUpperCase();
 
   const d = await Customer.findOneAndUpdate({ _id: id }, { $set: set }, { returnDocument: 'after' }).lean();
   if (!d) throw notFound('ग्राहक नहीं मिला');

@@ -135,6 +135,11 @@ export const settingsSchema = z.object({
   billTemplate: z.enum(['slip', 'simple']).optional(),
   terms: z.array(z.string()).optional(),
   websiteUrl: z.string().max(200).optional(), // बिल के QR से बिल-जाँच वाला पेज इसी website पर खुलता है
+  // हर बिल पर इसी UPI का भुगतान QR छपता है — खाली = QR नहीं
+  upiId: z.string().trim()
+    .refine((v) => v === '' || /^[\w.-]+@[\w.-]+$/.test(v), 'UPI ID गलत है (जैसे naam@okicici)')
+    .optional(),
+  upiName: z.string().trim().max(100).optional(),
 });
 
 export const customerCreateSchema = z.object({
@@ -142,6 +147,7 @@ export const customerCreateSchema = z.object({
   name: z.string().min(1, 'नाम ज़रूरी है'),
   phone: z.string().default(''),
   address: z.string().default(''),
+  pan: z.string().trim().toUpperCase().optional(),
   openingBalance: numberish.optional(),
 });
 
@@ -149,6 +155,7 @@ export const customerUpdateSchema = z.object({
   name: z.string().min(1).optional(),
   phone: z.string().optional(),
   address: z.string().optional(),
+  pan: z.string().trim().toUpperCase().optional(),
 });
 
 export const ledgerSchema = z.object({
@@ -198,13 +205,25 @@ export const offerUpdateSchema = z.object({
 // Purity % में (22K = 91.6). 916 जैसी गलती पर बिल 10 गुना न बन जाए — stock और उधारी भी गलत चढ़ती
 const purityPct = numberish.refine((v) => v > 0 && v <= 100, 'Purity 0 से 100% के बीच डालें (जैसे 22K = 91.6)');
 
+// नकद / UPI / NEFT-RTGS / Net Banking / Card / Cheque
+export const PAYMENT_MODES = ['cash', 'upi', 'neft', 'netbanking', 'card', 'cheque'];
+
+const upper = z.string().trim().toUpperCase();
+
 export const invoiceItemSchema = z.object({
   name: z.string().min(1, 'Item नाम ज़रूरी है'),
   metal: z.enum(['Gold', 'Silver']).default('Gold'),
+  huid: upper
+    .refine((v) => v === '' || /^[A-Z0-9]{6}$/.test(v), 'HUID 6 अक्षर/अंक का होता है (जैसे VGXVXH)')
+    .optional(),
+  grossWeight: numberish.optional(),
   weight: numberish,
   purity: purityPct.default(100),
   makingType: z.enum(['perg', 'pct', 'flat']).default('flat'),
   making: numberish.default(0),
+  hallmark: numberish.refine((v) => v >= 0, 'Hallmark charge 0 से कम नहीं हो सकता').default(0),
+}).refine((it) => !(it.grossWeight > 0) || it.grossWeight + 1e-9 >= it.weight, {
+  message: 'Gross वजन, Net वजन से कम नहीं हो सकता', path: ['grossWeight'],
 });
 
 export const invoiceCreateSchema = z.object({
@@ -214,6 +233,10 @@ export const invoiceCreateSchema = z.object({
   customerId: z.string().optional().nullable(),
   customerName: z.string().optional(),
   customerPhone: z.string().optional(),
+  customerAddress: z.string().optional(),
+  customerPan: upper
+    .refine((v) => v === '' || /^[A-Z]{5}[0-9]{4}[A-Z]$/.test(v), 'PAN नंबर गलत है (जैसे ABCDE1234F)')
+    .optional(),
   items: z.array(invoiceItemSchema).min(1, 'कम से कम एक Item ज़रूरी है'),
   exchange: z
     .object({
@@ -233,10 +256,16 @@ export const invoiceCreateSchema = z.object({
   discountValue: numberish.default(0),
   gstPct: numberish.optional(),
   paid: numberish.default(0),
+  // किस तरीके से कितना मिला — दिया हो तो paid इसी का जोड़ बनता है
+  payments: z.array(z.object({
+    mode: z.enum(PAYMENT_MODES),
+    amount: numberish.refine((v) => v >= 0, 'राशि 0 से कम नहीं हो सकती'),
+  })).optional(),
 });
 
 export const paymentSchema = z.object({
   amount: numberish,
+  mode: z.enum(PAYMENT_MODES).default('cash'),
   note: z.string().optional(),
 });
 

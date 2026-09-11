@@ -18,6 +18,7 @@ const customerSchema = new Schema({
   name: String,
   phone: { type: String, default: '' },
   address: { type: String, default: '' },
+  pan: { type: String, default: '' },
   ledger: { type: [ledgerEntrySchema], default: [] },
   // हमेशा ledger का जोड़ — हाथ से नहीं लिखते (services/customers.js → recalcBalance)
   balance: { type: Number, default: 0 },

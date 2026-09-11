@@ -1,5 +1,5 @@
 import { Customer, Stock, Invoice } from '../models/index.js';
-import { todayStr, daysAgo, round2 } from '../lib/helpers.js';
+import { todayStr, daysAgo, round2, billNoOf } from '../lib/helpers.js';
 import { summarizeInvoices } from '../lib/calc.js';
 import { listInvoices } from './invoices.js';
 import { listOffers } from './offers.js';
@@ -104,20 +104,24 @@ export async function rangeReport(filters = {}) {
 }
 
 const CSV_COLUMNS = [
-  ['Bill No', (i) => i.id],
+  ['Bill No', billNoOf],
   ['Barcode', (i) => i.barcode],
   ['Date', (i) => i.date],
   ['Type', (i) => i.type],
   ['GST Mode', (i) => i.gstMode],
   ['Customer', (i) => i.customerName],
   ['Phone', (i) => i.customerPhone],
+  ['PAN', (i) => i.customerPan || ''],
   ['Metal Value', (i) => i.subtotal],
   ['Making', (i) => i.making],
+  ['Hallmark', (i) => i.hallmark || 0],
   ['Discount', (i) => i.discount],
   ['GST %', (i) => i.gstPct],
   ['GST Amount', (i) => i.gst],
+  ['Round Off', (i) => i.roundOff || 0],
   ['Total', (i) => i.total],
   ['Paid', (i) => i.paid],
+  ['Payment Modes', (i) => (i.payments || []).map((p) => `${p.mode} ${p.amount}`).join(' | ')],
   ['Due', (i) => i.due],
 ];
 

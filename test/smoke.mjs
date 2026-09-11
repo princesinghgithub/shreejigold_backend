@@ -44,6 +44,13 @@ function check(name, cond, extra) {
 
 let r;
 
+// आज की तारीख (IST) और उसका financial year — बिल नंबर की गिनती इसी से
+const TODAY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
+const FY = (() => {
+  const y = Number(TODAY.slice(0, 4));
+  const s = Number(TODAY.slice(5, 7)) >= 4 ? y : y - 1;
+  return `${s}-${String((s + 1) % 100).padStart(2, '0')}`;
+})();
 
 console.log('\n-- health & auth --');
 r = await call('GET', '/api/health'); check('health', r.status === 200 && r.data.ok, r);
@@ -133,22 +140,23 @@ r = await call('POST', '/api/invoices', {
   items: [{ name: 'Angoothi', metal: 'Gold', weight: 8, purity: 91.6, makingType: 'perg', making: 350 }],
   paid: 30000,
 });
-// metalVal = 8*0.916*7250 = 53128 ; making = 2800 ; gross 55928 ; gst 3% = 1677.84 ; total 57605.84
-check('create invoice totals', r.status === 201 && r.data.total === 57605.84 && r.data.due === 27605.84, r);
+// metalVal = 8*0.916*7250 = 53128 ; making = 2800 ; gross 55928 ; gst 3% = 1677.84 ; 57605.84 → पूरे रुपये 57606 (Round Off +0.16)
+check('create invoice totals', r.status === 201 && r.data.total === 57606 && r.data.roundOff === 0.16 && r.data.due === 27606, r);
+check('पहला GST बिल नंबर 1 (इस financial year में)', r.data.billNo === '1' && r.data.series === 'INV' && r.data.fy === FY && r.data.seq === 1, r.data);
 const invId = r.data.id;
 const barcode = r.data.barcode;
 check('invoice barcode 12 digits', /^\d{12}$/.test(barcode), barcode);
 r = await call('GET', '/api/stock/' + stkId); check('sale reduced stock', r.data.qty === 9 && r.data.weight === 34, r);
-r = await call('GET', '/api/customers/' + custId); check('due added to ledger', r.data.balance === 29605.84, r);
+r = await call('GET', '/api/customers/' + custId); check('due added to ledger', r.data.balance === 29606, r);
 r = await call('GET', '/api/invoices/barcode/' + barcode); check('lookup by barcode', r.data.id === invId, r);
 r = await call('GET', '/api/public/bills/' + barcode, undefined, { noAuth: true });
-check('बिल जाँच (QR) बिना login: दुकान, items, कुल', r.status === 200 && r.data.bill.total === 57605.84 && r.data.bill.items.length === 1 && r.data.shop.nameHi && r.data.bill.fullyPaid === false, r);
+check('बिल जाँच (QR) बिना login: दुकान, items, कुल', r.status === 200 && r.data.bill.total === 57606 && r.data.bill.billNo === '1' && r.data.bill.items.length === 1 && r.data.shop.nameHi && r.data.bill.fullyPaid === false, r);
 check('बिल जाँच में ग्राहक का फ़ोन / पूरा नाम / बकाया नहीं', !JSON.stringify(r.data.bill).includes('9827001122') && r.data.bill.customer.startsWith('R') && !r.data.bill.customer.includes('Rakesh') && !('due' in r.data.bill), r.data.bill);
 r = await call('GET', '/api/public/bills/123456789012', undefined, { noAuth: true }); check('नकली बिल नंबर -> 404', r.status === 404, r);
 r = await call('GET', '/api/public/bills/abc', undefined, { noAuth: true }); check('गलत बिल नंबर -> 404', r.status === 404, r);
 r = await call('POST', '/api/invoices/' + invId + '/payment', { amount: 5000 });
-check('record payment', r.data.paid === 35000 && r.data.due === 22605.84, r);
-r = await call('GET', '/api/customers/' + custId); check('payment lowered balance', r.data.balance === 24605.84, r);
+check('record payment', r.data.paid === 35000 && r.data.due === 22606 && r.data.payments.length === 1 && r.data.payments[0].mode === 'cash', r);
+r = await call('GET', '/api/customers/' + custId); check('payment lowered balance', r.data.balance === 24606, r);
 r = await call('POST', '/api/invoices/' + invId + '/payment', { amount: -5 }); check('negative payment -> 400', r.status === 400, r);
 r = await call('POST', '/api/invoices', { type: 'sale', items: [] }); check('invoice without items -> 400', r.status === 400, r);
 r = await call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'Galti', metal: 'Gold', weight: 8, purity: 916, makingType: 'flat', making: 0 }] });
@@ -163,7 +171,7 @@ r = await call('POST', '/api/invoices', {
   paid: 0,
 });
 // 100*0.925*92 = 8510 + 600 = 9110, no gst
-check('nongst invoice + auto customer', r.status === 201 && r.data.gst === 0 && r.data.total === 9110, r);
+check('nongst invoice + auto customer', r.status === 201 && r.data.gst === 0 && r.data.total === 9110 && r.data.billNo === 'E-1', r);
 r = await call('GET', '/api/invoices?type=sale'); check('list invoices', r.data.length === 2, r);
 r = await call('GET', '/api/invoices?search=walk'); check('invoice search', r.data.length === 1, r);
 
@@ -175,8 +183,8 @@ r = await call('POST', '/api/invoices', {
   exchange: { weight: 5, purity: 75, deduct: 10, rate: 7250 },
   paid: 0,
 });
-// metal 66410 + 1000 = 67410 ; exchange = 5*0.75*0.9*7250 = 24468.75 ; total 42941.25
-check('exchange deducted from total', r.data.total === 42941.25 && r.data.exchange.value === 24468.75, r);
+// metal 66410 + 1000 = 67410 ; exchange = 5*0.75*0.9*7250 = 24468.75 ; 42941.25 → 42941
+check('exchange deducted from total', r.data.total === 42941 && r.data.roundOff === -0.25 && r.data.exchange.value === 24468.75 && r.data.billNo === 'E-2', r);
 const inv3 = r.data.id;
 
 console.log('\n-- reports --');
@@ -197,6 +205,52 @@ r = await call('DELETE', '/api/invoices/' + invId); check('delete invoice', r.da
 r = await call('GET', '/api/stock/' + stkId); check('stock restored', r.data.qty === 10 && r.data.weight === 42, r);
 r = await call('GET', '/api/customers/' + custId); check('ledger rolled back to 2000', r.data.balance === 2000, r);
 
+console.log('\n-- बिल की पूरी जानकारी: HUID, Gross/Net, Hallmark, भुगतान के तरीके, PAN --');
+r = await call('POST', '/api/invoices', {
+  type: 'sale',
+  customerId: custId,
+  customerAddress: 'Shanti Nagar',
+  customerPan: 'abcde1234f',
+  items: [{ name: 'Har', metal: 'Gold', huid: 'vgxvxh', grossWeight: 9.5, weight: 9.08, purity: 91.6, makingType: 'pct', making: 13, hallmark: 100 }],
+  payments: [{ mode: 'cash', amount: 50000 }, { mode: 'upi', amount: 20000 }, { mode: 'card', amount: 0 }],
+});
+// metal 9.08*0.916*7250 = 60300.28 ; making 13% = 7839.04 ; hallmark 100 ; gst 3% ; 70286.50 → 70286 (Round Off −0.50)
+{
+  const d = r.data;
+  const it = d.items && d.items[0];
+  check('बिल बना', r.status === 201, r);
+  check('HUID बड़े अक्षरों में, gross/net, भाव, making दर, hallmark', it && it.huid === 'VGXVXH' && it.grossWeight === 9.5 && it.weight === 9.08 && it.rate === 6641 && it.makingRate === 13 && it.hallmark === 100 && it.itemTotal === 68239.32, it);
+  check('hallmark GST से पहले जुड़ा, कुल पूरे रुपये में', d.hallmark === 100 && d.total === 70286 && d.roundOff === -0.5, d);
+  check('भुगतान तरीके-वार, paid = जोड़, ₹0 वाला छोड़ा', d.paid === 70000 && d.due === 286 && d.payments.length === 2 && d.payments[1].mode === 'upi', d.payments);
+  check('ग्राहक का पता और PAN बिल पर', d.customerAddress === 'Shanti Nagar' && d.customerPan === 'ABCDE1234F', d);
+  check('बिल हटने के बाद भी नंबर दोबारा नहीं — अगला 2', d.billNo === '2', d.billNo);
+}
+const detailId = r.data.id;
+const detailBarcode = r.data.barcode;
+r = await call('POST', '/api/invoices/' + detailId + '/payment', { amount: 286, mode: 'upi' });
+check('बाकी UPI से जमा', r.data.due === 0 && r.data.payments.length === 3 && r.data.payments[2].mode === 'upi', r.data);
+r = await call('POST', '/api/invoices/' + detailId + '/payment', { amount: 10, mode: 'bitcoin' });
+check('अनजान भुगतान तरीका -> 400', r.status === 400, r);
+r = await call('GET', '/api/invoices?billNo=2'); check('बिल नंबर से खोज', r.data.length === 1 && r.data[0].id === detailId, r.data);
+r = await call('GET', '/api/invoices?search=e-1'); check('search में बिल नंबर (E-1)', r.data.some((i) => i.billNo === 'E-1'), r.data);
+r = await call('GET', '/api/public/bills/' + detailBarcode, undefined, { noAuth: true });
+check('बिल जाँच में बिल नंबर और HUID, PAN नहीं', r.data.bill.billNo === '2' && r.data.bill.items[0].huid === 'VGXVXH' && !JSON.stringify(r.data).includes('ABCDE1234F'), r.data);
+{
+  const bad = (patch) => call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'X', metal: 'Gold', weight: 5, purity: 91.6, ...patch }] });
+  r = await bad({ huid: 'AB12' }); check('HUID 6 अक्षर का नहीं -> 400', r.status === 400 && JSON.stringify(r.data).includes('HUID'), r);
+  r = await bad({ grossWeight: 4 }); check('Gross < Net -> 400', r.status === 400 && JSON.stringify(r.data).includes('Gross'), r);
+  r = await bad({ hallmark: -5 }); check('Hallmark charge ऋणात्मक -> 400', r.status === 400, r);
+}
+r = await call('POST', '/api/invoices', { type: 'sale', customerPan: 'XYZ', items: [{ name: 'X', metal: 'Gold', weight: 5, purity: 91.6 }] });
+check('गलत PAN -> 400', r.status === 400 && JSON.stringify(r.data).includes('PAN'), r);
+r = await call('POST', '/api/invoices', { type: 'purchase', items: [{ name: 'Purani', metal: 'Gold', weight: 2, purity: 75 }] });
+check('खरीद की अलग series P-1', r.status === 201 && r.data.billNo === 'P-1', r.data);
+const purchaseId = r.data.id;
+// आगे backup वाले टेस्ट की गिनती पहले जैसी रहे
+r = await call('DELETE', '/api/invoices/' + detailId); check('detail बिल हटा', r.data.deleted, r);
+r = await call('DELETE', '/api/invoices/' + purchaseId); check('खरीद बिल हटा', r.data.deleted, r);
+r = await call('GET', '/api/customers/' + custId); check('खाता फिर 2000', r.data.balance === 2000, r);
+
 console.log('\n-- backup / restore --');
 r = await call('GET', '/api/backup');
 const snapshot = r.data;
@@ -206,8 +260,10 @@ r = await call('DELETE', '/api/backup/all'); check('clear all', r.data.counts.in
 r = await call('POST', '/api/backup/restore', snapshot);
 check('restore counts', r.data.counts.customers === 2 && r.data.counts.invoices === 2 && r.data.counts.stock >= 1, r);
 r = await call('GET', '/api/customers/' + custId); check('restore kept balance', r.data.balance === 2000, r);
-r = await call('GET', '/api/invoices/' + inv3); check('restore kept invoice total', r.data.total === 42941.25, r);
+r = await call('GET', '/api/invoices/' + inv3); check('restore kept invoice total', r.data.total === 42941 && r.data.billNo === 'E-2', r);
 r = await call('GET', '/api/shop/rates'); check('restore kept rates', r.data.gold === 7250, r);
+r = await call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'Nath', metal: 'Gold', weight: 1, purity: 91.6 }] });
+check('restore के बाद भी गिनती आगे से (3)', r.data.billNo === '3', r.data);
 
 console.log('\n-- frontend-style backup (balance without ledger) --');
 r = await call('POST', '/api/backup/restore', {
@@ -224,6 +280,15 @@ r = await call('POST', '/api/backup/restore', {
 check('legacy restore ok', r.status === 200, r);
 r = await call('GET', '/api/customers/c1'); check('balance-only customer preserved', r.data.balance === 5000, r);
 r = await call('GET', '/api/customers/c2'); check('mixed customer preserved', r.data.balance === 4500, r);
+
+console.log('\n-- backup के बिल नंबर से आगे गिनती --');
+r = await call('POST', '/api/backup/restore', {
+  rates: { gold: 7000, silver: 90 }, settings: { gst: 3 }, customers: [], stock: [], offers: [],
+  invoices: [{ id: 'inv_old50', type: 'sale', gstMode: 'gst', barcode: '555555555555', date: TODAY, series: 'INV', fy: FY, seq: 50, billNo: '50', items: [], total: 0, paid: 0, due: 0 }],
+});
+check('backup restore', r.status === 200 && r.data.counts.invoices === 1, r);
+r = await call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'Nath', metal: 'Gold', weight: 1, purity: 91.6 }] });
+check('backup में 50 तक के बिल — अगला 51', r.data.billNo === '51', r.data);
 
 console.log('\n-- seed demo --');
 r = await call('POST', '/api/backup/seed-demo');

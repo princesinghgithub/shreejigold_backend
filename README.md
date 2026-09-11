@@ -45,8 +45,8 @@ npm run seed
 npm test
 ```
 
-143 जाँचें चलती हैं (लॉगिन, email OTP, Brevo, बिल का हिसाब, stock घटना-बढ़ना, उधारी खाता, backup/restore,
-website catalog, फोटो, leads और CORS).
+205 जाँचें चलती हैं (लॉगिन, email OTP, Brevo, बिल का हिसाब, बिल नंबर की गिनती, HUID / Hallmark / भुगतान के तरीके,
+stock घटना-बढ़ना, उधारी खाता, backup/restore, website catalog, फोटो, leads और CORS).
 यह अपने आप एक अस्थायी MongoDB चला लेता है — असली डेटा को हाथ नहीं लगाता, और कोई असली email नहीं भेजता.
 
 ### डेटाबेस की कॉपी अभी बनाएं
@@ -108,7 +108,8 @@ npm run reset-password
 | `meta` | `Meta` | key/value — GST %, दुकान का नाम/पता/लोगो, सोने-चांदी का भाव, लॉगिन खाता |
 | `customers` | `Customer` | ग्राहक — नाम, फ़ोन, पता, `balance`, और **उधारी खाता (`ledger`) इसी के अंदर** |
 | `stock` | `Stock` | माल — नाम, Gold/Silver, purity, वजन, नग |
-| `invoices` | `Invoice` | बिल — items और exchange इसी दस्तावेज़ में |
+| `invoices` | `Invoice` | बिल — बिल नंबर, items (HUID, Gross/Net वजन, hallmark), exchange, भुगतान के तरीके इसी दस्तावेज़ में |
+| `counters` | `Counter` | बिल नंबर की गिनती — हर series और financial year की अलग (`INV:2026-27` → 257) |
 | `offers` | `Offer` | चालू छूट/ऑफर |
 | `backups` | `Backup` | रोज़ बनने वाली पूरे डेटा की कॉपियाँ |
 | `products` | `Product` | Website पर दिखने वाले designs — नाम, type, metal, कीमत, website पर दिखे या नहीं |
@@ -124,6 +125,12 @@ entries सैकड़ों में रहती हैं (लाखों 
 बिल के `items` को अलग collection में तोड़ा नहीं गया — छपा हुआ बिल हमेशा वैसा ही दिखना चाहिए
 जैसा उस दिन बना था. भाव बाद में बदल जाएं तो भी पुराना बिल नहीं बदलना चाहिए, इसलिए हर item का
 निकाला हुआ `metalVal` / `making` बिल के अंदर ही जम जाता है.
+
+**बिल नंबर (GST नियम 46):** tax invoice का नंबर लगातार हो और एक financial year (अप्रैल–मार्च) में
+दोहराया न जाए. इसलिए तीन series अलग गिनती से चलती हैं — GST बिक्री `1, 2, 3…`, Estimate `E-1…`,
+खरीद `P-1…` — और हर 1 अप्रैल को फिर 1 से. बिल हटे तो भी गिनती पीछे नहीं जाती (वही नंबर दूसरे बिल पर
+नहीं छपता), और backup restore के बाद गिनती backup के सबसे बड़े नंबर से आगे चलती है.
+पुराने बिलों (इस बदलाव से पहले के) में नंबर नहीं है — उन पर पहले की तरह id के आखिरी 6 अक्षर छपते हैं.
 
 ### एक साथ बदलने वाली चीज़ें (transactions)
 
@@ -238,10 +245,11 @@ Authorization: Bearer <token>
 | GET | `/invoices/:id` | एक बिल |
 | GET | `/invoices/barcode/:code` | barcode से बिल खोजें |
 | POST | `/invoices` | नया बिल |
-| POST | `/invoices/:id/payment` | भुगतान दर्ज — `{ amount, note }` |
+| POST | `/invoices/:id/payment` | भुगतान दर्ज — `{ amount, mode, note }` (`mode`: `cash` · `upi` · `neft` · `netbanking` · `card` · `cheque`) |
 | DELETE | `/invoices/:id` | बिल हटाएं |
 
-Filters: `?from=2026-09-01&to=2026-09-30&type=sale|purchase&gstMode=gst|nongst&customerId=&search=&limit=&offset=`
+Filters: `?from=2026-09-01&to=2026-09-30&type=sale|purchase&gstMode=gst|nongst&customerId=&billNo=257&search=&limit=&offset=`
+(`search` में छपा बिल नंबर — जैसे `E-12` — भी पूरा मिलाकर खोजा जाता है)
 
 बिल बनाने का उदाहरण:
 
@@ -254,22 +262,30 @@ POST /api/invoices
   "customerId": "cust_xxx",
   "customerName": "नया ग्राहक",
   "customerPhone": "9876543210",
+  "customerAddress": "शांति नगर, खटखरी",
+  "customerPan": "ABCDE1234F",
   "items": [
-    { "name": "अंगूठी", "metal": "Gold", "weight": 10, "purity": 91.6, "makingType": "perg", "making": 400 }
+    { "name": "हार", "metal": "Gold", "huid": "VGXVXH", "grossWeight": 9.2, "weight": 9.08, "purity": 91.6,
+      "makingType": "pct", "making": 13, "hallmark": 100 }
   ],
   "exchange": { "weight": 0, "purity": 0, "deduct": 0, "rate": 0 },
   "discountType": "pct",
   "discountValue": 2,
-  "paid": 5000
+  "payments": [{ "mode": "cash", "amount": 50000 }, { "mode": "upi", "amount": 20000 }]
 }
 ```
 
 - `makingType`: `perg` (₹/ग्राम) · `flat` (सीधा ₹) · `pct` (value का %)
+- `weight` = Net वजन (भाव इसी पर); `grossWeight` = नग/धागे समेत (न दें तो Net जितना)
+- `huid` = BIS hallmark का 6 अक्षर/अंक वाला HUID (optional); `hallmark` = hallmark charge ₹ — GST से पहले जुड़ता है
+- `payments` दें तो `paid` उसी का जोड़ बनता है; पुराना तरीका `"paid": 5000` भी चलता है
+- `customerPan` ₹2 लाख से ऊपर के बिल पर लें (ऐप चेतावनी देता है); गलत format पर 400
 - `customerId` न दें और `customerName` दें → नया ग्राहक अपने आप बन जाता है
 - `gstMode: "nongst"` → GST 0% (Estimate बिल)
 
 **बिल बनते ही अपने आप:**
-1. भाव सर्वर के rates से लगते हैं (client का भेजा total नहीं माना जाता), barcode बनता है
+1. भाव सर्वर के rates से लगते हैं (client का भेजा total नहीं माना जाता), barcode और बिल नंबर (`billNo`) बनता है;
+   कुल रकम पूरे रुपये में — पैसे का फ़र्क `roundOff` में
 2. Stock adjust होता है — बिक्री पर घटता, खरीद पर बढ़ता; खरीद में नया item हो तो stock में जुड़ जाता है
 3. बकाया (due) ग्राहक के उधारी खाते में चढ़ जाता है
 

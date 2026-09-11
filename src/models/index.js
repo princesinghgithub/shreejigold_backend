@@ -9,3 +9,4 @@ export { Product } from './Product.js';
 export { ProductImage } from './ProductImage.js';
 export { Lead } from './Lead.js';
 export { User } from './User.js';
+export { Counter } from './Counter.js';
