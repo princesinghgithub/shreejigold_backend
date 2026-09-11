@@ -2,3 +2,5 @@ data/
 test/
 *.sqlite.bak
 *.bak
+.env
+.env.local
