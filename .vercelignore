@@ -1,0 +1,4 @@
+data/
+test/
+*.sqlite.bak
+*.bak
