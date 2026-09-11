@@ -393,7 +393,7 @@ Website पर "Enquire" या WhatsApp widget में नाम-नंबर
 - [src/context/DataContext.jsx](../soni-ji-react/src/context/DataContext.jsx) — `updateDb` को API पर भेजना
 - [src/components/Login.jsx](../soni-ji-react/src/components/Login.jsx) — `getCred`/`setCred` की जगह `/api/auth/login`
 
-फ्रंटएंड में एक `VITE_API_URL=http://localhost:4000/api` env डालकर token `localStorage`
+फ्रंटएंड में एक `SHREEJI_URL=http://localhost:4000/api` env डालकर token `localStorage`
 में रखना होगा. Backend का CORS पहले से `http://localhost:5173` (Vite) के लिए खुला है.
 
 ---
@@ -438,7 +438,7 @@ Domain settings में `api.shreejigold.shop` इस project से जोड
 `soni-ji-react` फोल्डर से दूसरा Vercel project बनाएं. Environment Variable:
 
 ```
-VITE_API_URL = https://api.shreejigold.shop/api
+SHREEJI_URL = https://shreejigoldbackend.vercel.app/api
 ```
 
 Domain में `admin.shreejigold.shop` जोड़ें.
