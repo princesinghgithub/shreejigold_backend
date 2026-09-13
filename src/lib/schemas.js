@@ -149,6 +149,8 @@ export const customerCreateSchema = z.object({
   address: z.string().default(''),
   pan: z.string().trim().toUpperCase().optional(),
   openingBalance: numberish.optional(),
+  // वही ग्राहक पहले से है फिर भी नया खाता बनाना हो
+  allowDuplicate: z.boolean().optional(),
 });
 
 export const customerUpdateSchema = z.object({

@@ -6,7 +6,7 @@ import { computeItemValue, summarizeBill } from '../lib/calc.js';
 import { PAYMENT_MODES } from '../lib/schemas.js';
 import { getRates, getSettings } from './shop.js';
 import { applyInvoiceToStock } from './stock.js';
-import { addLedgerEntry, removeInvoiceEntries, createCustomer } from './customers.js';
+import { addLedgerEntry, removeInvoiceEntries, createCustomer, findExistingCustomer, normPhone } from './customers.js';
 
 const MODE_LABELS = {
   cash: 'नकद', upi: 'UPI', neft: 'NEFT/RTGS', netbanking: 'Net Banking', card: 'Card', cheque: 'Cheque',
@@ -201,13 +201,29 @@ export async function createInvoice(input) {
         customer = { ...customer, ...patch };
       }
     } else if (input.customerName && input.customerName.trim()) {
-      const created = await createCustomer({
-        name: input.customerName.trim(),
-        phone: input.customerPhone || '',
-        address,
-        pan,
-      }, session);
-      customer = await Customer.findById(created.id, null, { session }).lean();
+      // पुराना ग्राहक दोबारा आया हो तो नया खाता नहीं बनता — उसका पिछला बकाया और
+      // यह नया बिल, दोनों एक ही खाते में चलते रहें
+      const existing = await findExistingCustomer(
+        { name: input.customerName, phone: input.customerPhone }, session,
+      );
+      if (existing) {
+        const patch = {};
+        if (!normPhone(existing.phone) && normPhone(input.customerPhone)) patch.phone = String(input.customerPhone).trim();
+        if (address && !existing.address) patch.address = address;
+        if (pan && !existing.pan) patch.pan = pan;
+        if (Object.keys(patch).length) {
+          await Customer.updateOne({ _id: existing._id }, { $set: patch }, { session });
+        }
+        customer = { ...existing, ...patch };
+      } else {
+        const created = await createCustomer({
+          name: input.customerName.trim(),
+          phone: input.customerPhone || '',
+          address,
+          pan,
+        }, session);
+        customer = await Customer.findById(created.id, null, { session }).lean();
+      }
     }
 
     const no = await nextBillNo(seriesOf(type, gstMode), date, session);

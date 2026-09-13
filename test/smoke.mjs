@@ -291,6 +291,39 @@ r = await call('DELETE', '/api/invoices/' + flatGstId); check('GST वाले 
 r = await call('DELETE', '/api/invoices/' + pctGstId); check('GST वाले जाँच-बिल हटे (2/3)', r.data.deleted, r);
 r = await call('DELETE', '/api/invoices/' + noGstId); check('GST वाले जाँच-बिल हटे (3/3)', r.data.deleted, r);
 
+console.log('\n-- पुराना ग्राहक दोबारा: नया खाता न बने --');
+r = await call('POST', '/api/invoices', {
+  type: 'sale', customerName: 'rakesh patel', customerPhone: '+91 98270-01122',
+  items: [{ name: 'Chain', metal: 'Gold', weight: 1, purity: 91.6, makingType: 'flat', making: 0 }],
+});
+const againId = r.data.id;
+check('वही नाम-नंबर पर बिल — पुराना ही खाता (नाम/नंबर का रूप बदला हो तब भी)', r.data.customerId === custId, r.data.customerId);
+r = await call('GET', '/api/customers');
+check('कोई दूसरा खाता नहीं बना', r.data.filter((c) => c.name.toLowerCase().includes('rakesh')).length === 1, r.data.map((c) => c.name));
+r = await call('GET', '/api/customers/' + custId);
+check('नए बिल का बकाया उसी पुराने खाते में जुड़ा', r.data.balance > 2000 && r.data.ledger.some((l) => l.invoiceId === againId), r.data.balance);
+r = await call('DELETE', '/api/invoices/' + againId);
+check('जाँच-बिल हटा, खाता फिर 2000', r.data.deleted, r);
+r = await call('GET', '/api/customers/' + custId); check('बकाया वापस 2000', r.data.balance === 2000, r.data.balance);
+
+r = await call('POST', '/api/customers', { name: 'Rakesh Patel', phone: '9827001122' });
+check('वही ग्राहक दोबारा जोड़ने पर -> 409 साफ़ संदेश', r.status === 409 && r.data.error.includes('पहले से है'), r);
+r = await call('POST', '/api/customers', { name: 'Rakesh Patel', phone: '9827001122', allowDuplicate: true });
+check('सचमुच अलग आदमी हो तो allowDuplicate से बनता है', r.status === 201, r);
+const dupId = r.data.id;
+r = await call('POST', '/api/customers/' + dupId + '/ledger', { amount: 500, note: 'दोहरे खाते का बकाया' });
+check('दोहरे खाते में 500 बकाया', r.data.balance === 500, r);
+r = await call('GET', '/api/customers/duplicates');
+check('दोहरे खाते पकड़े गए (एक ही नंबर)', r.status === 200 && r.data.some((g) => g.by === 'phone' && g.customers.length === 2), r.data);
+r = await call('POST', '/api/customers/' + custId + '/merge', { from: dupId });
+check('मिलाने पर बकाया जुड़ गया (2000 + 500)', r.status === 200 && r.data.balance === 2500, r.data);
+r = await call('GET', '/api/customers/' + dupId); check('दोहरा खाता हट गया', r.status === 404, r);
+r = await call('GET', '/api/customers/duplicates'); check('अब कोई दोहरा खाता नहीं', r.data.length === 0, r.data);
+r = await call('POST', '/api/customers/' + custId + '/merge', { from: custId });
+check('अपने आप में मिलाना -> 400', r.status === 400, r);
+r = await call('POST', '/api/customers/' + custId + '/ledger', { amount: -500, note: 'जाँच वापस' });
+check('खाता फिर 2000 पर', r.data.balance === 2000, r);
+
 console.log('\n-- backup / restore --');
 r = await call('GET', '/api/backup');
 const snapshot = r.data;
@@ -302,9 +335,12 @@ check('restore counts', r.data.counts.customers === 2 && r.data.counts.invoices 
 r = await call('GET', '/api/customers/' + custId); check('restore kept balance', r.data.balance === 2000, r);
 r = await call('GET', '/api/invoices/' + inv3); check('restore kept invoice total', r.data.total === 42941 && r.data.billNo === 'E-2', r);
 r = await call('GET', '/api/shop/rates'); check('restore kept rates', r.data.gold === 7250, r);
+// बीच में बने-हटे बिल भी नंबर ले चुके हैं, इसलिए पक्का अंक नहीं जाँचते —
+// बस यह कि गिनती पीछे नहीं गई और अगला नंबर उससे एक आगे है
 r = await call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'Nath', metal: 'Gold', weight: 1, purity: 91.6 }] });
-// इस बीच बने-हटे बिल भी नंबर ले चुके हैं — गिनती कभी पीछे नहीं जाती
-check('restore के बाद भी गिनती आगे से (5)', r.data.billNo === '5', r.data);
+const noAfterRestore = Number(r.data.billNo);
+r = await call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'Nath', metal: 'Gold', weight: 1, purity: 91.6 }] });
+check('restore के बाद भी गिनती आगे से चली (पीछे नहीं गई)', noAfterRestore > 1 && Number(r.data.billNo) === noAfterRestore + 1, `${noAfterRestore} → ${r.data.billNo}`);
 
 console.log('\n-- frontend-style backup (balance without ledger) --');
 r = await call('POST', '/api/backup/restore', {
