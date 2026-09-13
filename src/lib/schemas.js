@@ -254,6 +254,9 @@ export const invoiceCreateSchema = z.object({
     .optional(),
   discountType: z.enum(['flat', 'pct']).default('flat'),
   discountValue: numberish.default(0),
+  // GST प्रतिशत में या सीधे रुपयों में — बिल पर वही छपता है जो चुना गया
+  gstType: z.enum(['pct', 'flat']).default('pct'),
+  gstValue: numberish.optional(),
   gstPct: numberish.optional(),
   paid: numberish.default(0),
   // किस तरीके से कितना मिला — दिया हो तो paid इसी का जोड़ बनता है

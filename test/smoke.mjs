@@ -251,6 +251,46 @@ r = await call('DELETE', '/api/invoices/' + detailId); check('detail बिल �
 r = await call('DELETE', '/api/invoices/' + purchaseId); check('खरीद बिल हटा', r.data.deleted, r);
 r = await call('GET', '/api/customers/' + custId); check('खाता फिर 2000', r.data.balance === 2000, r);
 
+console.log('\n-- ऊपर के खाने से खोज (ग्राहक + बिल) --');
+r = await call('GET', '/api/search?q=rakesh');
+check('नाम से ग्राहक — बकाया और बिल की गिनती के साथ', r.status === 200 && r.data.customers.length === 1 && r.data.customers[0].id === custId && r.data.customers[0].balance === 2000 && typeof r.data.customers[0].bills === 'number', r.data.customers);
+r = await call('GET', '/api/search?q=9827001122');
+check('फ़ोन नंबर से ग्राहक', r.data.customers.length === 1 && r.data.customers[0].id === custId, r.data.customers);
+r = await call('GET', '/api/search?q=E-1');
+check('छपे बिल नंबर से बिल', r.data.invoices.some((i) => i.billNo === 'E-1'), r.data.invoices);
+r = await call('GET', '/api/search?q=walk');
+check('नाम से बिल भी मिलते हैं', r.data.invoices.some((i) => i.customerName.includes('Walk-in')), r.data.invoices);
+r = await call('GET', '/api/search?q=' + encodeURIComponent('+91('));
+check('अजीब अक्षरों से खोज नहीं टूटती', r.status === 200 && Array.isArray(r.data.customers), r.data);
+r = await call('GET', '/api/search?q=');
+check('खाली खोज -> खाली जवाब', r.status === 200 && r.data.customers.length === 0 && r.data.invoices.length === 0, r.data);
+r = await call('GET', '/api/search?q=rakesh', undefined, { noAuth: true });
+check('बिना लॉगिन खोज -> 401', r.status === 401, r);
+
+console.log('\n-- GST: प्रतिशत में या सीधे रुपयों में --');
+r = await call('POST', '/api/invoices', {
+  type: 'sale', gstMode: 'gst', gstType: 'flat', gstValue: 1500,
+  items: [{ name: 'Kada', metal: 'Gold', weight: 8, purity: 91.6, makingType: 'flat', making: 2800 }],
+});
+// धातु 53128 + मजदूरी 2800 = 55928 ; GST सीधा ₹1500 ; कुल 57428 (1500/55928 = 2.68%)
+check('GST रुपयों में — वही रकम लगी और प्रतिशत उसी से निकला', r.status === 201 && r.data.gstType === 'flat' && r.data.gstValue === 1500 && r.data.gst === 1500 && r.data.total === 57428 && r.data.gstPct === 2.68, r.data);
+const flatGstId = r.data.id;
+r = await call('POST', '/api/invoices', {
+  type: 'sale', gstMode: 'gst', gstPct: 3,
+  items: [{ name: 'Kada', metal: 'Gold', weight: 8, purity: 91.6, makingType: 'flat', making: 2800 }],
+});
+check('प्रतिशत वाला पुराना तरीका वैसे का वैसा', r.data.gstType === 'pct' && r.data.gstPct === 3 && r.data.gst === 1677.84 && r.data.total === 57606, r.data);
+const pctGstId = r.data.id;
+r = await call('POST', '/api/invoices', {
+  type: 'sale', gstMode: 'nongst', gstType: 'flat', gstValue: 900,
+  items: [{ name: 'Chandi', metal: 'Silver', weight: 10, purity: 92.5, makingType: 'flat', making: 100 }],
+});
+check('बिना GST बिल में रुपयों वाला GST भी नहीं लगता', r.data.gst === 0 && r.data.gstType === 'pct' && r.data.gstPct === 0, r.data);
+const noGstId = r.data.id;
+r = await call('DELETE', '/api/invoices/' + flatGstId); check('GST वाले जाँच-बिल हटे (1/3)', r.data.deleted, r);
+r = await call('DELETE', '/api/invoices/' + pctGstId); check('GST वाले जाँच-बिल हटे (2/3)', r.data.deleted, r);
+r = await call('DELETE', '/api/invoices/' + noGstId); check('GST वाले जाँच-बिल हटे (3/3)', r.data.deleted, r);
+
 console.log('\n-- backup / restore --');
 r = await call('GET', '/api/backup');
 const snapshot = r.data;
@@ -263,7 +303,8 @@ r = await call('GET', '/api/customers/' + custId); check('restore kept balance',
 r = await call('GET', '/api/invoices/' + inv3); check('restore kept invoice total', r.data.total === 42941 && r.data.billNo === 'E-2', r);
 r = await call('GET', '/api/shop/rates'); check('restore kept rates', r.data.gold === 7250, r);
 r = await call('POST', '/api/invoices', { type: 'sale', items: [{ name: 'Nath', metal: 'Gold', weight: 1, purity: 91.6 }] });
-check('restore के बाद भी गिनती आगे से (3)', r.data.billNo === '3', r.data);
+// इस बीच बने-हटे बिल भी नंबर ले चुके हैं — गिनती कभी पीछे नहीं जाती
+check('restore के बाद भी गिनती आगे से (5)', r.data.billNo === '5', r.data);
 
 console.log('\n-- frontend-style backup (balance without ledger) --');
 r = await call('POST', '/api/backup/restore', {

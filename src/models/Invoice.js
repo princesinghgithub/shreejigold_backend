@@ -62,7 +62,10 @@ const invoiceSchema = new Schema({
   making: { type: Number, default: 0 },
   hallmark: { type: Number, default: 0 },
   discount: { type: Number, default: 0 },
-  gstPct: { type: Number, default: 0 },
+  // 'pct' = प्रतिशत से, 'flat' = रकम सीधे रुपयों में डाली गई (बिल पर वही दिखता है)
+  gstType: { type: String, enum: ['pct', 'flat'], default: 'pct' },
+  gstValue: { type: Number, default: 0 },   // जो डाला गया था (3 या 1500)
+  gstPct: { type: Number, default: 0 },     // हमेशा असली प्रतिशत — रिपोर्ट के लिए
   gst: { type: Number, default: 0 },
   roundOff: { type: Number, default: 0 },
   total: { type: Number, default: 0 },

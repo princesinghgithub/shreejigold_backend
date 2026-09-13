@@ -21,6 +21,7 @@ import backupRoutes from './routes/backup.routes.js';
 import catalogRoutes from './routes/catalog.routes.js';
 import leadsRoutes from './routes/leads.routes.js';
 import usersRoutes from './routes/users.routes.js';
+import searchRoutes from './routes/search.routes.js';
 import publicRoutes from './routes/public.routes.js';
 
 // दुकान का अपना नेटवर्क — 192.168.x.x, 10.x.x.x, 172.16–31.x.x और खुद यही मशीन
@@ -88,6 +89,7 @@ export function createApp() {
   // इसके नीचे सब कुछ लॉगिन के बाद ही (मालिक, admin, staff)
   app.use('/api/shop', requireAuth, shopRoutes);
   app.use('/api/customers', requireAuth, customersRoutes);
+  app.use('/api/search', requireAuth, searchRoutes);
   app.use('/api/stock', requireAuth, stockRoutes);
   app.use('/api/invoices', requireAuth, invoicesRoutes);
   app.use('/api/offers', requireAuth, offersRoutes);

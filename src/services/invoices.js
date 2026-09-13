@@ -114,7 +114,12 @@ export async function createInvoice(input) {
   const settings = await getSettings();
   const type = input.type === 'purchase' ? 'purchase' : 'sale';
   const gstMode = input.gstMode === 'nongst' ? 'nongst' : 'gst';
-  const gstPct = gstMode === 'nongst' ? 0 : num(input.gstPct, settings.gst);
+  // GST प्रतिशत में (3) या सीधे रुपयों में (1500) — Estimate बिल में दोनों ही नहीं लगते
+  const gstType = input.gstType === 'flat' ? 'flat' : 'pct';
+  const gstValue = input.gstValue !== undefined && input.gstValue !== null
+    ? num(input.gstValue)
+    : num(input.gstPct, settings.gst);
+  const gst = gstMode === 'nongst' ? { type: 'pct', value: 0 } : { type: gstType, value: gstValue };
   const date = input.date || todayStr();
   const exchange = {
     weight: num(input.exchange?.weight),
@@ -172,7 +177,7 @@ export async function createInvoice(input) {
     exchange,
     input.discountType === 'pct' ? 'pct' : 'flat',
     num(input.discountValue),
-    gstPct,
+    gst,
     paid,
   );
 
@@ -225,7 +230,9 @@ export async function createInvoice(input) {
       making: round2(sums.makingTotal),
       hallmark: round2(sums.hallmarkTotal),
       discount: round2(sums.discount),
-      gstPct: sums.gstPct,
+      gstType: sums.gstType,
+      gstValue: round2(sums.gstValue),
+      gstPct: round2(sums.gstPct),
       gst: round2(sums.gstAmt),
       roundOff: round2(sums.roundOff),
       total: round2(sums.total),
@@ -305,6 +312,8 @@ export async function insertRawInvoice(inv, session = null) {
     making: num(inv.making),
     hallmark: num(inv.hallmark),
     discount: num(inv.discount),
+    gstType: inv.gstType === 'flat' ? 'flat' : 'pct',
+    gstValue: num(inv.gstValue, num(inv.gstPct)),
     gstPct: num(inv.gstPct),
     gst: num(inv.gst),
     roundOff: num(inv.roundOff),

@@ -227,6 +227,15 @@ Authorization: Bearer <token>
 
 `amount` में **+ = उधारी बढ़ी**, **− = पैसा जमा हुआ**. `balance` हर बार ledger से खुद जुड़ती है.
 
+### खोज (ऊपर का एक ही खाना)
+
+| Method | Path | काम |
+|---|---|---|
+| GET | `/search?q=रमेश&limit=8` | ग्राहक (नाम / फ़ोन / पता) और बिल (बिल नंबर / barcode / ग्राहक का नाम) — दोनों एक ही जवाब में |
+
+जवाब: `{ q, customers: [{ id, name, phone, address, balance, bills, lastBillDate }], invoices: [{ id, billNo, date, customerName, total, due }] }`.
+बिलिंग ऐप का ऊपर वाला खाना यही चलाता है — नाम लिखते ही ग्राहक की सूची, और एक ही मिले तो Enter से सीधा उसका खाता.
+
 ### Stock
 
 | Method | Path | काम |
@@ -281,6 +290,9 @@ POST /api/invoices
 - `payments` दें तो `paid` उसी का जोड़ बनता है; पुराना तरीका `"paid": 5000` भी चलता है
 - `customerPan` ₹2 लाख से ऊपर के बिल पर लें (ऐप चेतावनी देता है); गलत format पर 400
 - `customerId` न दें और `customerName` दें → नया ग्राहक अपने आप बन जाता है
+- GST दो तरह से: `"gstType": "pct", "gstValue": 3` (प्रतिशत) या `"gstType": "flat", "gstValue": 1500` (सीधे रुपये).
+  बिल पर वही छपता है जो चुना गया; `gstPct` में असली प्रतिशत हमेशा भर जाता है (रिपोर्ट के लिए).
+  पुराना `"gstPct": 3` भी चलता रहेगा
 - `gstMode: "nongst"` → GST 0% (Estimate बिल)
 
 **बिल बनते ही अपने आप:**

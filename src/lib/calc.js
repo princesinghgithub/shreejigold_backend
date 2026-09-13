@@ -22,7 +22,12 @@ export function computeExchangeValue(ex = {}) {
   return w * (p / 100) * (1 - d / 100) * r;
 }
 
-export function summarizeBill(items, rates, exchange, discType, discVal, gstPct, paid) {
+/**
+ * gst: 3 (पुराना तरीका — सीधा प्रतिशत) या { type: 'pct' | 'flat', value }.
+ * 'flat' में दुकानदार GST की रकम सीधे रुपयों में डालता है; प्रतिशत उसी से निकाल लेते हैं
+ * ताकि रिपोर्ट में आंकड़ा बना रहे (बिल पर वही छपता है जो चुना गया).
+ */
+export function summarizeBill(items, rates, exchange, discType, discVal, gst, paid) {
   let subtotal = 0;
   let makingTotal = 0;
   let hallmarkTotal = 0;
@@ -35,7 +40,11 @@ export function summarizeBill(items, rates, exchange, discType, discVal, gstPct,
   const gross = subtotal + makingTotal + hallmarkTotal;
   const discount = discType === 'pct' ? gross * (Number(discVal) / 100) : Number(discVal) || 0;
   const afterDisc = Math.max(0, gross - discount);
-  const gstAmt = afterDisc * ((Number(gstPct) || 0) / 100);
+  const gstIn = gst && typeof gst === 'object' ? gst : { type: 'pct', value: gst };
+  const gstType = gstIn.type === 'flat' ? 'flat' : 'pct';
+  const gstValue = Number(gstIn.value) || 0;
+  const gstAmt = gstType === 'flat' ? gstValue : afterDisc * (gstValue / 100);
+  const gstPct = gstType === 'flat' ? (afterDisc > 0 ? (gstAmt / afterDisc) * 100 : 0) : gstValue;
   const exchangeVal = computeExchangeValue(exchange);
   // बिल की रकम पूरे रुपये में — पैसे का फ़र्क "Round Off" में दिखता है
   const exact = afterDisc + gstAmt - exchangeVal;
@@ -49,7 +58,9 @@ export function summarizeBill(items, rates, exchange, discType, discVal, gstPct,
     gross,
     discount,
     afterDisc,
-    gstPct: Number(gstPct) || 0,
+    gstType,
+    gstValue,
+    gstPct,
     gstAmt,
     exchangeVal,
     roundOff,
