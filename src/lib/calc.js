@@ -14,6 +14,15 @@ export function computeItemValue(item, rates) {
   return { rate: rate * (p / 100), metalVal, making, hallmark, itemTotal: metalVal + making + hallmark };
 }
 
+/**
+ * पुराना सोना एक से ज़्यादा गहनों का हो सकता है (हर एक की अपनी शुद्धता और कटौती).
+ * पुराने बिल/पुराना इनपुट एक ही object भेजते थे — वह भी चलता रहे.
+ */
+export function exchangeLinesOf(exchange) {
+  if (Array.isArray(exchange)) return exchange.filter((e) => Number(e && e.weight) > 0);
+  return exchange && Number(exchange.weight) > 0 ? [exchange] : [];
+}
+
 export function computeExchangeValue(ex = {}) {
   const w = Number(ex.weight) || 0;
   const p = Number(ex.purity) || 0;
@@ -45,7 +54,7 @@ export function summarizeBill(items, rates, exchange, discType, discVal, gst, pa
   const gstValue = Number(gstIn.value) || 0;
   const gstAmt = gstType === 'flat' ? gstValue : afterDisc * (gstValue / 100);
   const gstPct = gstType === 'flat' ? (afterDisc > 0 ? (gstAmt / afterDisc) * 100 : 0) : gstValue;
-  const exchangeVal = computeExchangeValue(exchange);
+  const exchangeVal = exchangeLinesOf(exchange).reduce((s, e) => s + computeExchangeValue(e), 0);
   // बिल की रकम पूरे रुपये में — पैसे का फ़र्क "Round Off" में दिखता है
   const exact = afterDisc + gstAmt - exchangeVal;
   const total = Math.round(exact);

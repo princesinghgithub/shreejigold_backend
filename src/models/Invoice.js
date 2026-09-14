@@ -31,6 +31,7 @@ const paymentSchema = new Schema({
 
 // पुराना सोना बदले में
 const exchangeSchema = new Schema({
+  name: { type: String, default: '' },   // जैसे "पुरानी चूड़ी"
   weight: Number,
   purity: Number,
   deduct: Number,      // % कटौती
@@ -57,6 +58,8 @@ const invoiceSchema = new Schema({
   customerAddress: { type: String, default: '' },
   customerPan: { type: String, default: '' },     // ₹2 लाख से ऊपर के बिल पर
   items: { type: [invoiceItemSchema], default: [] },
+  // हर पुराना गहना अलग लाइन में; exchange उन्हीं का जोड़ (पुराने बिलों में सिर्फ exchange है)
+  exchangeItems: { type: [exchangeSchema], default: [] },
   exchange: { type: exchangeSchema, default: () => ({}) },
   subtotal: { type: Number, default: 0 },
   making: { type: Number, default: 0 },

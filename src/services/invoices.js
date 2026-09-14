@@ -2,7 +2,7 @@ import { tx } from '../db/index.js';
 import { Counter, Customer, Invoice } from '../models/index.js';
 import { uid, genBarcode, todayStr, num, round2, escapeRegex, fyOf, billNoOf } from '../lib/helpers.js';
 import { notFound, badRequest } from '../lib/errors.js';
-import { computeItemValue, summarizeBill } from '../lib/calc.js';
+import { computeItemValue, computeExchangeValue, summarizeBill } from '../lib/calc.js';
 import { PAYMENT_MODES } from '../lib/schemas.js';
 import { getRates, getSettings } from './shop.js';
 import { applyInvoiceToStock } from './stock.js';
@@ -121,12 +121,20 @@ export async function createInvoice(input) {
     : num(input.gstPct, settings.gst);
   const gst = gstMode === 'nongst' ? { type: 'pct', value: 0 } : { type: gstType, value: gstValue };
   const date = input.date || todayStr();
-  const exchange = {
-    weight: num(input.exchange?.weight),
-    purity: num(input.exchange?.purity),
-    deduct: num(input.exchange?.deduct),
-    rate: num(input.exchange?.rate),
-  };
+  // पुराना सोना — जितने गहने, उतनी लाइनें. पुराना तरीका (एक ही exchange object) भी चलता है.
+  const exInput = Array.isArray(input.exchangeItems) && input.exchangeItems.length
+    ? input.exchangeItems
+    : (num(input.exchange?.weight) > 0 ? [input.exchange] : []);
+  const exchangeItems = exInput
+    .map((e) => ({
+      name: String((e && e.name) || '').trim(),
+      weight: num(e?.weight),
+      purity: num(e?.purity),
+      deduct: num(e?.deduct),
+      rate: num(e?.rate),
+    }))
+    .filter((e) => e.weight > 0)
+    .map((e) => ({ ...e, value: round2(computeExchangeValue(e)) }));
 
   // इनपुट जैसा है वैसा (making = दर), हिसाब इसी पर लगता है
   const normalized = items.map((it) => ({
@@ -174,7 +182,7 @@ export async function createInvoice(input) {
   const sums = summarizeBill(
     normalized,
     rates,
-    exchange,
+    exchangeItems,
     input.discountType === 'pct' ? 'pct' : 'flat',
     num(input.discountValue),
     gst,
@@ -241,7 +249,16 @@ export async function createInvoice(input) {
       customerAddress: address || (customer && customer.address) || '',
       customerPan: pan || (customer && customer.pan) || '',
       items: itemsWithValues,
-      exchange: { ...exchange, value: round2(sums.exchangeVal) },
+      exchangeItems,
+      // सब गहनों का जोड़ — एक ही गहना हो तो उसकी शुद्धता/कटौती यहीं रहती है (पुराने बिलों जैसा)
+      exchange: {
+        name: '',
+        weight: round2(exchangeItems.reduce((s, e) => s + e.weight, 0)),
+        purity: exchangeItems.length === 1 ? exchangeItems[0].purity : 0,
+        deduct: exchangeItems.length === 1 ? exchangeItems[0].deduct : 0,
+        rate: exchangeItems.length === 1 ? exchangeItems[0].rate : 0,
+        value: round2(sums.exchangeVal),
+      },
       subtotal: round2(sums.subtotal),
       making: round2(sums.makingTotal),
       hallmark: round2(sums.hallmarkTotal),
@@ -323,6 +340,7 @@ export async function insertRawInvoice(inv, session = null) {
     customerAddress: inv.customerAddress || '',
     customerPan: inv.customerPan || '',
     items: inv.items || [],
+    exchangeItems: Array.isArray(inv.exchangeItems) ? inv.exchangeItems : [],
     exchange: inv.exchange || {},
     subtotal: num(inv.subtotal),
     making: num(inv.making),

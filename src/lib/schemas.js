@@ -228,6 +228,19 @@ export const invoiceItemSchema = z.object({
   message: 'Gross वजन, Net वजन से कम नहीं हो सकता', path: ['grossWeight'],
 });
 
+// पुराने सोने का एक गहना — जितने गहने हों, उतनी लाइनें
+const exchangeLineSchema = z.object({
+  name: z.string().optional(),
+  weight: numberish.default(0),
+  purity: numberish.default(0),
+  deduct: numberish.default(0),
+  rate: numberish.default(0),
+}).refine((ex) => !(ex.weight > 0) || (ex.purity > 0 && ex.purity <= 100), {
+  message: 'पुराने सोने की Purity 0 से 100% के बीच डालें', path: ['purity'],
+}).refine((ex) => ex.deduct >= 0 && ex.deduct <= 100, {
+  message: 'कटौती 0 से 100% के बीच डालें', path: ['deduct'],
+});
+
 export const invoiceCreateSchema = z.object({
   type: z.enum(['sale', 'purchase']).default('sale'),
   gstMode: z.enum(['gst', 'nongst']).default('gst'),
@@ -254,6 +267,8 @@ export const invoiceCreateSchema = z.object({
       message: 'कटौती 0 से 100% के बीच डालें', path: ['deduct'],
     })
     .optional(),
+  // कई पुराने गहने — दिया हो तो ऊपर वाला exchange नहीं देखा जाता
+  exchangeItems: z.array(exchangeLineSchema).optional(),
   discountType: z.enum(['flat', 'pct']).default('flat'),
   discountValue: numberish.default(0),
   // GST प्रतिशत में या सीधे रुपयों में — बिल पर वही छपता है जो चुना गया

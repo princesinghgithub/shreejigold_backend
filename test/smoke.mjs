@@ -187,6 +187,35 @@ r = await call('POST', '/api/invoices', {
 check('exchange deducted from total', r.data.total === 42941 && r.data.roundOff === -0.25 && r.data.exchange.value === 24468.75 && r.data.billNo === 'E-2', r);
 const inv3 = r.data.id;
 
+console.log('\n-- पुराना सोना: कई गहने अलग-अलग --');
+r = await call('POST', '/api/invoices', {
+  type: 'sale',
+  gstMode: 'nongst',
+  items: [{ name: 'Haar', metal: 'Gold', weight: 10, purity: 91.6, makingType: 'flat', making: 1000 }],
+  exchangeItems: [
+    { name: 'पुरानी चूड़ी', weight: 12, purity: 75, deduct: 2, rate: 7250 },
+    { name: 'पुरानी अंगूठी', weight: 5, purity: 91.6, deduct: 0, rate: 7250 },
+  ],
+});
+// चूड़ी 12*0.75*0.98*7250 = 63,945 ; अंगूठी 5*0.916*7250 = 33,205 ; कुल 97,150
+// गहना 66,410 + 1,000 = 67,410 → कुल −29,740 (दुकान को देना है)
+{
+  const d = r.data;
+  check('हर पुराना गहना अलग लाइन में, अपनी कीमत के साथ', r.status === 201 && d.exchangeItems.length === 2
+    && d.exchangeItems[0].name === 'पुरानी चूड़ी' && d.exchangeItems[0].value === 63945
+    && d.exchangeItems[1].value === 33205, d.exchangeItems);
+  check('सबका जोड़ exchange में (वजन 17 g, कीमत 97,150)', d.exchange.weight === 17 && d.exchange.value === 97150, d.exchange);
+  check('पुराने सोने की कीमत कुल में से घटी', d.total === -29740 && d.due === -29740, d.total);
+}
+const exMultiId = r.data.id;
+r = await call('POST', '/api/invoices', {
+  type: 'sale',
+  items: [{ name: 'Haar', metal: 'Gold', weight: 5, purity: 91.6 }],
+  exchangeItems: [{ name: 'गलत', weight: 2, purity: 750, deduct: 0, rate: 7250 }],
+});
+check('किसी एक लाइन की purity 750% -> 400', r.status === 400 && JSON.stringify(r.data).includes('Purity'), r);
+r = await call('DELETE', '/api/invoices/' + exMultiId); check('कई गहनों वाला जाँच-बिल हटा', r.data.deleted, r);
+
 console.log('\n-- reports --');
 r = await call('GET', '/api/shop/dashboard');
 check('dashboard', r.data.last7Days.length === 7 && r.data.customerCount >= 1 && r.data.recentInvoices.length === 3, r);

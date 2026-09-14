@@ -295,7 +295,9 @@ POST /api/invoices
     { "name": "हार", "metal": "Gold", "huid": "VGXVXH", "grossWeight": 9.2, "weight": 9.08, "purity": 91.6,
       "makingType": "pct", "making": 13, "hallmark": 100 }
   ],
-  "exchange": { "weight": 0, "purity": 0, "deduct": 0, "rate": 0 },
+  "exchangeItems": [
+    { "name": "पुरानी चूड़ी", "weight": 12, "purity": 75, "deduct": 2, "rate": 7250 }
+  ],
   "discountType": "pct",
   "discountValue": 2,
   "payments": [{ "mode": "cash", "amount": 50000 }, { "mode": "upi", "amount": 20000 }]
@@ -306,6 +308,9 @@ POST /api/invoices
 - `weight` = Net वजन (भाव इसी पर); `grossWeight` = नग/धागे समेत (न दें तो Net जितना)
 - `huid` = BIS hallmark का 6 अक्षर/अंक वाला HUID (optional); `hallmark` = hallmark charge ₹ — GST से पहले जुड़ता है
 - `payments` दें तो `paid` उसी का जोड़ बनता है; पुराना तरीका `"paid": 5000` भी चलता है
+- **पुराना सोना**: `exchangeItems` में जितने गहने हों उतनी लाइनें — हर एक की अपनी शुद्धता, कटौती और भाव.
+  कीमत = `वजन × शुद्धता% × (100−कटौती)% × भाव`, और सबका जोड़ बिल में से घट जाता है.
+  `exchange` में उन्हीं का जोड़ भर जाता है (पुराने बिल और पुराना एक-गहने वाला `exchange` इनपुट भी चलता है)
 - `customerPan` ₹2 लाख से ऊपर के बिल पर लें (ऐप चेतावनी देता है); गलत format पर 400
 - `customerId` न दें और `customerName` दें → नया ग्राहक अपने आप बन जाता है
 - GST दो तरह से: `"gstType": "pct", "gstValue": 3` (प्रतिशत) या `"gstType": "flat", "gstValue": 1500` (सीधे रुपये).
