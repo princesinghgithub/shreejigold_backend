@@ -208,6 +208,10 @@ r = await call('POST', '/api/invoices', {
   check('पुराने सोने की कीमत कुल में से घटी', d.total === -29740 && d.due === -29740, d.total);
 }
 const exMultiId = r.data.id;
+r = await call('GET', '/api/public/bills/' + r.data.barcode, undefined, { noAuth: true });
+check('बिल जाँच पन्ने पर भी दोनों पुराने गहने और उनका जोड़', r.status === 200 && r.data.bill.oldGold.length === 2
+  && r.data.bill.oldGold[0].name === 'पुरानी चूड़ी' && r.data.bill.oldGold[1].value === 33205
+  && r.data.bill.oldGoldTotal === 97150, r.data.bill.oldGold);
 r = await call('POST', '/api/invoices', {
   type: 'sale',
   items: [{ name: 'Haar', metal: 'Gold', weight: 5, purity: 91.6 }],

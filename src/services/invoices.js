@@ -401,6 +401,14 @@ export async function publicBill(code) {
       items: (d.items || []).map((it) => ({
         name: it.name, metal: it.metal, huid: it.huid || '', weight: num(it.weight), purity: num(it.purity),
       })),
+      // पुराना सोना भी बिल पर छपा है, इसलिए जाँच वाले पन्ने पर भी वही ब्योरा
+      oldGold: (d.exchangeItems && d.exchangeItems.length
+        ? d.exchangeItems
+        : (num(d.exchange?.weight) > 0 ? [d.exchange] : [])
+      ).map((e) => ({
+        name: e.name || '', weight: num(e.weight), purity: num(e.purity), deduct: num(e.deduct), value: round2(e.value),
+      })),
+      oldGoldTotal: round2(num(d.exchange?.value)),
       total: round2(d.total),
       fullyPaid: num(d.due) <= 0,
     },
