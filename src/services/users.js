@@ -3,6 +3,7 @@ import { User } from '../models/index.js';
 import { uid } from '../lib/helpers.js';
 import { badRequest, conflict, notFound } from '../lib/errors.js';
 import { getAccount, checkUserId, checkPassword, norm } from './auth.js';
+import { isEnabled } from './twofa.js';
 
 export const ROLES = ['admin', 'staff'];
 
@@ -14,6 +15,8 @@ function toUser(d) {
     role: d.role,
     active: d.active !== false,
     lastLoginAt: d.lastLoginAt || null,
+    // सिर्फ हाँ/ना — secret या backup codes कभी बाहर नहीं जाते
+    twoFactor: isEnabled(d.totp),
     createdAt: d.createdAt,
   };
 }
@@ -88,6 +91,10 @@ export async function updateUser(id, input, actor = null) {
   if (input.password) {
     set.passHash = bcrypt.hashSync(checkPassword(input.password), 10);
     logoutOld = true;
+  }
+  if (input.reset2fa) {
+    set.totp = null;
+    logoutOld = true; // फ़ोन खोया है — उस पर खुला लॉगिन भी बंद
   }
 
   const update = logoutOld ? { $set: set, $inc: { tokenVersion: 1 } } : { $set: set };

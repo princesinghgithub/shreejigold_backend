@@ -15,6 +15,9 @@ const userSchema = new mongoose.Schema({
   // पासवर्ड / यूज़र ID बदलने या खाता बंद करने पर बढ़ता है — पुराने लॉगिन (token) उसी पल बेकार
   tokenVersion: { type: Number, default: 0 },
   lastLoginAt: { type: String, default: null },
+  // Google Authenticator (सिर्फ admin के लिए) — services/twofa.js. मालिक का meta → account.totp में.
+  // { enabled, secret, pendingSecret, lastStep, backupCodes: [sha256], enabledAt }
+  totp: { type: mongoose.Schema.Types.Mixed, default: null },
   createdAt: String,
   updatedAt: String,
 }, { collection: 'users', versionKey: false, id: false });

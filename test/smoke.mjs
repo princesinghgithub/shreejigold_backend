@@ -13,6 +13,7 @@ process.env.MAIL_TRANSPORT = 'json'; // असली email नहीं जा�
 process.env.ALLOW_SETUP = 'true'; // टेस्ट का खाता /auth/setup से बनता है (असली ऐप में यह बंद रहता है)
 
 const { createApp } = await import('../src/app.js');
+const { hotp, base32Decode } = await import('../src/lib/totp.js');
 const app = createApp();
 const server = app.listen(0);
 await new Promise((r) => server.once('listening', r));
@@ -43,6 +44,29 @@ function check(name, cond, extra) {
 }
 
 let r;
+
+// ---- Google Authenticator: टेस्ट खुद फ़ोन वाले ऐप की तरह कोड बनाता है ----
+// एक कोड (time-step) दोबारा नहीं चलता और सर्वर सिर्फ अभी वाला ±1 step मानता है,
+// इसलिए हर बार अगला step — खत्म हो जाएं तो अगले 30 सेकंड तक रुकते हैं.
+const twofa = {}; // who → { secret, lastStep }
+const nowStep = () => Math.floor(Date.now() / 30000);
+async function nextCode(who) {
+  const st = twofa[who];
+  const step = Math.max(nowStep(), st.lastStep + 1);
+  while (step > nowStep() + 1) await new Promise((res) => setTimeout(res, 500));
+  st.lastStep = step;
+  return hotp(base32Decode(st.secret), step);
+}
+/** पासवर्ड + Authenticator — पहली बार QR वाला setup, फिर 6 अंकों का कोड */
+async function login2fa(userId, password, who = 'owner') {
+  const first = await call('POST', '/api/auth/login', { userId, password }, { noAuth: true });
+  if (first.status !== 200 || !first.data.step) return first;
+  if (first.data.step === 'setup') {
+    twofa[who] = { secret: first.data.secret, lastStep: 0 };
+    return call('POST', '/api/auth/2fa/setup', { challenge: first.data.challenge, code: await nextCode(who) }, { noAuth: true });
+  }
+  return call('POST', '/api/auth/2fa/verify', { challenge: first.data.challenge, code: await nextCode(who) }, { noAuth: true });
+}
 
 // आज की तारीख (IST) और उसका financial year — बिल नंबर की गिनती इसी से
 const TODAY = new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Kolkata' });
@@ -81,13 +105,68 @@ r = await call('POST', '/api/auth/login', { userId: 'koiaur', password: 'soniji1
 check('wrong userId -> 401', r.status === 401, r);
 check('error does not reveal which field', r.data.error === 'यूज़र ID या पासवर्ड गलत है', r.data);
 r = await call('POST', '/api/auth/login', { userId: 'CHHOTELAL', password: 'soniji123' }, { noAuth: true });
-check('login is case-insensitive on userId', r.status === 200 && r.data.token, r);
+check('मालिक: पासवर्ड के बाद token नहीं, पहली बार Authenticator setup', r.status === 200 && !r.data.token && r.data.step === 'setup'
+  && r.data.challenge && r.data.secret && r.data.otpauthUrl.startsWith('otpauth://totp/Shreeji%20Gold'), r);
+{
+  const ch = r.data.challenge;
+  token = ch;
+  r = await call('GET', '/api/shop/rates'); check('challenge token की तरह नहीं चलता -> 401', r.status === 401, r);
+  token = null;
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: '123456' }, { noAuth: true });
+  check('setup से पहले verify नहीं', r.status !== 200, r);
+}
+r = await login2fa('CHHOTELAL', 'soniji123');
+check('login is case-insensitive on userId (+ Authenticator setup)', r.status === 200 && r.data.token && r.data.role === 'owner', r);
+check('setup पर 10 backup codes (XXXX-XXXX)', Array.isArray(r.data.backupCodes) && r.data.backupCodes.length === 10
+  && r.data.backupCodes.every((c) => /^[A-Z2-9]{4}-[A-Z2-9]{4}$/.test(c)), r.data.backupCodes);
+const ownerBackup = r.data.backupCodes;
 token = r.data.token;
 {
   const good = token;
   token = 'garbage.token.here';
   r = await call('GET', '/api/shop/rates'); check('bad token -> 401', r.status === 401, r);
   token = good;
+}
+
+console.log('\n-- Google Authenticator (मालिक) --');
+r = await call('GET', '/api/auth/2fa/status');
+check('status: चालू, 10 backup codes', r.status === 200 && r.data.enabled && r.data.backupCodesLeft === 10, r);
+r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'soniji123' }, { noAuth: true });
+check('अब लॉगिन पर सिर्फ कोड माँगे (QR नहीं)', r.data.step === 'totp' && !r.data.secret, r);
+{
+  const ch = r.data.challenge;
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: hotp(base32Decode(twofa.owner.secret), twofa.owner.lastStep) }, { noAuth: true });
+  check('वही कोड दोबारा नहीं चलता', r.status === 400 && r.data.error.includes('4 कोशिश'), r);
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: ownerBackup[0].toLowerCase().replace('-', '') }, { noAuth: true });
+  check('backup code (छोटे अक्षर, बिना -) से लॉगिन', r.status === 200 && r.data.token && r.data.backupCodesLeft === 9, r);
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: ownerBackup[1] }, { noAuth: true });
+  check('challenge एक ही बार चलता', r.status === 401 && r.data.details.code === 'CHALLENGE_EXPIRED', r);
+}
+r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'soniji123' }, { noAuth: true });
+{
+  const ch = r.data.challenge;
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: ownerBackup[0] }, { noAuth: true });
+  check('इस्तेमाल हुआ backup code दोबारा नहीं', r.status === 400, r);
+  for (let i = 0; i < 3; i++) await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: '000000' }, { noAuth: true });
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: '000000' }, { noAuth: true });
+  check('5 गलत कोड पर challenge खत्म', r.status === 400 && r.data.details.code === 'CHALLENGE_EXPIRED', r);
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: ownerBackup[2] }, { noAuth: true });
+  check('...फिर सही backup code भी नहीं चलता', r.status === 401, r);
+}
+r = await call('POST', '/api/auth/2fa/verify', { challenge: 'a'.repeat(64), code: '123456' }, { noAuth: true });
+check('नकली challenge -> 401', r.status === 401, r);
+r = await call('POST', '/api/auth/2fa/backup-codes', { code: '000000' });
+check('नए backup codes: गलत कोड -> 400', r.status === 400, r);
+r = await call('POST', '/api/auth/2fa/backup-codes', { code: await nextCode('owner') });
+check('नए backup codes बने', r.status === 200 && r.data.backupCodes.length === 10, r);
+{
+  const fresh = r.data.backupCodes;
+  r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'soniji123' }, { noAuth: true });
+  const ch = r.data.challenge;
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: ownerBackup[3] }, { noAuth: true });
+  check('पुराने backup codes अब बंद', r.status === 400, r);
+  r = await call('POST', '/api/auth/2fa/verify', { challenge: ch, code: fresh[0] }, { noAuth: true });
+  check('नया backup code चलता', r.status === 200 && r.data.backupCodesLeft === 9, r);
 }
 
 console.log('\n-- पासवर्ड भूल गए --');
@@ -98,12 +177,20 @@ check('question returned without login', r.status === 200 && r.data.question.inc
 r = await call('POST', '/api/auth/forgot', { userId: 'chhotelal', answer: 'galat', newPassword: 'naya1234' }, { noAuth: true });
 check('wrong answer -> 401', r.status === 401, r);
 r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'soniji123' }, { noAuth: true });
-check('password unchanged after wrong answer', r.status === 200, r);
+check('password unchanged after wrong answer', r.status === 200 && r.data.step === 'totp', r);
 r = await call('POST', '/api/auth/forgot', { userId: 'chhotelal', answer: ' KHATKHARI ', newPassword: 'naya1234' }, { noAuth: true });
 check('right answer resets password', r.status === 200 && r.data.reset, r);
 r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'naya1234' }, { noAuth: true });
-check('new password works', r.status === 200, r);
-token = r.data.token;
+check('पासवर्ड भूलकर बदलने से Authenticator नहीं हटता', r.status === 200 && r.data.step === 'totp' && !r.data.token, r);
+{
+  const beforeReset = token;
+  r = await login2fa('chhotelal', 'naya1234');
+  check('new password works', r.status === 200 && r.data.token, r);
+  token = beforeReset;
+  r = await call('GET', '/api/auth/me'); check('पासवर्ड reset पर पुराने लॉगिन बंद -> 401', r.status === 401, r);
+  r = await login2fa('chhotelal', 'naya1234');
+  token = r.data.token;
+}
 r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'soniji123' }, { noAuth: true });
 check('old password dead', r.status === 401, r);
 console.log('\n-- shop settings & rates --');
@@ -420,10 +507,19 @@ check('round-trip kept ledger count', r.data.customers.every((c, i) => c.ledger.
 console.log('\n-- password / userId / question बदलना --');
 r = await call('POST', '/api/auth/change-password', { oldPassword: 'wrong', newPassword: 'newpass1' });
 check('wrong old password -> 401', r.status === 401, r);
-r = await call('POST', '/api/auth/change-password', { oldPassword: 'naya1234', newPassword: 'newpass1' });
-check('change password', r.data.changed, r);
-r = await call('POST', '/api/auth/login', { userId: 'chhotelal', password: 'newpass1' }, { noAuth: true });
-check('login with new password', r.status === 200, r);
+r = await call('POST', '/api/auth/change-password', { oldPassword: 'naya1234', newPassword: 'short7x' });
+check('नया पासवर्ड 8 से छोटा -> 400', r.status === 400, r);
+{
+  const oldOwnerToken = token;
+  r = await call('POST', '/api/auth/change-password', { oldPassword: 'naya1234', newPassword: 'newpass1' });
+  check('change password (नया token मिले)', r.data.changed && r.data.token, r);
+  token = r.data.token;
+  r = await call('GET', '/api/auth/me'); check('नए token से चलता', r.status === 200, r);
+  token = oldOwnerToken;
+  r = await call('GET', '/api/auth/me'); check('मालिक का पासवर्ड बदलते ही पुराना token बेकार -> 401', r.status === 401, r);
+}
+r = await login2fa('chhotelal', 'newpass1');
+check('login with new password', r.status === 200 && r.data.token, r);
 token = r.data.token;
 r = await call('POST', '/api/auth/change-userid', { password: 'wrong', newUserId: 'malik' });
 check('userId change needs password', r.status === 401, r);
@@ -492,8 +588,10 @@ check('OTP भेजा, email छिपा हुआ', r.status === 200 && r.da
   check('गलत OTP पर पासवर्ड नहीं बदला', r.status === 401, r);
   r = await call('POST', '/api/auth/forgot/otp/verify', { userId: 'malik@example.com', otp, newPassword: 'otppass1' }, { noAuth: true });
   check('सही OTP से नया पासवर्ड', r.status === 200 && r.data.reset, r);
-  r = await call('POST', '/api/auth/login', { userId: 'malik@example.com', password: 'otppass1' }, { noAuth: true });
-  check('नए पासवर्ड से लॉगिन', r.status === 200, r);
+  r = await call('GET', '/api/auth/me'); check('OTP से reset पर पुराने लॉगिन बंद -> 401', r.status === 401, r);
+  r = await login2fa('malik@example.com', 'otppass1');
+  check('नए पासवर्ड से लॉगिन', r.status === 200 && r.data.token, r);
+  token = r.data.token;
   r = await call('POST', '/api/auth/forgot/otp/verify', { userId: 'malik@example.com', otp, newPassword: 'again123' }, { noAuth: true });
   check('वही OTP दोबारा नहीं चलता', r.status === 400, r);
 }
@@ -593,8 +691,11 @@ console.log('\n-- दुकान के users (staff / admin) --');
   r = await call('POST', '/api/users', { userId: 'naya user', password: 'other123' });
   check('यूज़र ID में space -> 400', r.status === 400, r);
 
+  r = await call('POST', '/api/users', { userId: 'chhota', password: 'seven77' });
+  check('user का पासवर्ड 8 से छोटा -> 400', r.status === 400, r);
+
   r = await call('POST', '/api/auth/login', { userId: 'RAMESH', password: 'staff123' }, { noAuth: true });
-  check('staff लॉगिन', r.status === 200 && r.data.role === 'staff' && r.data.token, r);
+  check('staff लॉगिन — Authenticator नहीं माँगता', r.status === 200 && r.data.role === 'staff' && r.data.token && !r.data.step, r);
   token = r.data.token;
   r = await call('GET', '/api/auth/me');
   check('staff: me में role staff', r.data.user.role === 'staff' && r.data.user.sub === 'ramesh', r);
@@ -622,8 +723,25 @@ console.log('\n-- दुकान के users (staff / admin) --');
   r = await call('PUT', '/api/users/' + staffId, { active: true, password: 'reset789', role: 'admin', name: 'Ramesh Soni' });
   check('मालिक ने चालू किया + पासवर्ड reset + Admin बनाया', r.status === 200 && r.data.active && r.data.role === 'admin' && r.data.name === 'Ramesh Soni', r);
   r = await call('POST', '/api/auth/login', { userId: 'ramesh', password: 'reset789' }, { noAuth: true });
-  check('नए पासवर्ड से लॉगिन (Admin)', r.status === 200 && r.data.role === 'admin', r);
+  check('Admin को भी Authenticator setup', r.status === 200 && r.data.step === 'setup' && !r.data.token, r);
+  r = await login2fa('ramesh', 'reset789', 'ramesh');
+  check('नए पासवर्ड से लॉगिन (Admin)', r.status === 200 && r.data.role === 'admin' && r.data.backupCodes.length === 10, r);
   token = r.data.token;
+  r = await call('GET', '/api/auth/2fa/status'); check('Admin: 2FA status चालू', r.data.enabled === true, r);
+  r = await call('GET', '/api/users');
+  check('users सूची में twoFactor हाँ, secret बाहर नहीं', r.data.users[0].twoFactor === true && !('totp' in r.data.users[0]), r.data.users);
+  {
+    const adminToken = token;
+    token = ownerToken;
+    r = await call('PUT', '/api/users/' + staffId, { reset2fa: true });
+    check('मालिक ने Admin का Authenticator हटाया', r.status === 200 && r.data.twoFactor === false, r);
+    token = adminToken;
+    r = await call('GET', '/api/auth/me'); check('हटाते ही Admin का पुराना लॉगिन बंद -> 401', r.status === 401, r);
+    r = await call('POST', '/api/auth/login', { userId: 'ramesh', password: 'reset789' }, { noAuth: true });
+    check('अगले लॉगिन पर नया QR', r.data.step === 'setup', r);
+    r = await login2fa('ramesh', 'reset789', 'ramesh');
+    token = r.data.token;
+  }
   r = await call('GET', '/api/users');
   check('Admin users देख सकता (मालिक + 1 user)', r.status === 200 && r.data.users.length === 1 && r.data.owner && r.data.owner.role === 'owner', r.data);
   r = await call('PUT', '/api/users/' + staffId, { active: false });

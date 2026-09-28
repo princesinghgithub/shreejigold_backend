@@ -17,7 +17,7 @@ export const loginSchema = z.object({
 
 export const changePasswordSchema = z.object({
   oldPassword: z.string().min(1, 'पुराना पासवर्ड डालें'),
-  newPassword: z.string().min(4, 'कम से कम 4 अक्षर'),
+  newPassword: z.string().min(8, 'कम से कम 8 अक्षर'),
 });
 
 export const changeUserIdSchema = z.object({
@@ -34,7 +34,17 @@ export const securityQuestionSchema = z.object({
 export const forgotResetSchema = z.object({
   userId: z.string().min(1, 'यूज़र ID डालें'),
   answer: z.string().min(1, 'सवाल का जवाब लिखें'),
-  newPassword: z.string().min(4, 'कम से कम 4 अक्षर'),
+  newPassword: z.string().min(8, 'कम से कम 8 अक्षर'),
+});
+
+// Google Authenticator — लॉगिन का दूसरा कदम (code = 6 अंक या backup code XXXX-XXXX)
+export const twofaLoginSchema = z.object({
+  challenge: z.string().min(1, 'दोबारा लॉगिन करें'),
+  code: z.string().trim().min(1, 'कोड डालें').max(20),
+});
+
+export const twofaCodeSchema = z.object({
+  code: z.string().trim().regex(/^\d{6}$/, 'Authenticator का 6 अंकों का कोड डालें'),
 });
 
 export const forgotOtpSchema = z.object({
@@ -44,7 +54,7 @@ export const forgotOtpSchema = z.object({
 export const forgotOtpVerifySchema = z.object({
   userId: z.string().min(1, 'यूज़र ID डालें'),
   otp: z.string().trim().regex(/^\d{6}$/, 'OTP 6 अंकों का होता है'),
-  newPassword: z.string().min(4, 'कम से कम 4 अक्षर'),
+  newPassword: z.string().min(8, 'कम से कम 8 अक्षर'),
 });
 
 // ---- website catalog (admin) ----
@@ -96,16 +106,18 @@ export const leadUpdateSchema = z.object({
 export const userCreateSchema = z.object({
   name: z.string().trim().max(80).optional(),
   userId: z.string().min(1, 'यूज़र ID डालें'),
-  password: z.string().min(4, 'पासवर्ड कम से कम 4 अक्षर का रखें'),
+  password: z.string().min(8, 'पासवर्ड कम से कम 8 अक्षर का रखें'),
   role: z.enum(['admin', 'staff']).default('staff'),
 });
 
 export const userUpdateSchema = z.object({
   name: z.string().trim().max(80).optional(),
   userId: z.string().min(1, 'यूज़र ID डालें').optional(),
-  password: z.string().min(4, 'पासवर्ड कम से कम 4 अक्षर का रखें').optional(),
+  password: z.string().min(8, 'पासवर्ड कम से कम 8 अक्षर का रखें').optional(),
   role: z.enum(['admin', 'staff']).optional(),
   active: z.boolean().optional(),
+  // Admin का फ़ोन खो गया — उसका Google Authenticator हटाओ, अगले लॉगिन पर नया QR
+  reset2fa: z.boolean().optional(),
 });
 
 export const ratesSchema = z.object({

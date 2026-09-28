@@ -1,12 +1,13 @@
 import { Router } from 'express';
 import { validate } from '../middleware/validate.js';
-import { requireAuth, requireOwner } from '../middleware/auth.js';
+import { requireAuth, requireOwner, requireAdmin } from '../middleware/auth.js';
 import {
   setupSchema, loginSchema, changePasswordSchema,
   changeUserIdSchema, securityQuestionSchema, forgotResetSchema,
-  forgotOtpSchema, forgotOtpVerifySchema,
+  forgotOtpSchema, forgotOtpVerifySchema, twofaLoginSchema, twofaCodeSchema,
 } from '../lib/schemas.js';
 import * as auth from '../services/auth.js';
+import * as twofa from '../services/twofa.js';
 import { asyncHandler } from '../lib/helpers.js';
 import { forbidden } from '../lib/errors.js';
 import { rateLimit, clearRateLimit } from '../middleware/rateLimit.js';
@@ -39,11 +40,38 @@ router.post('/setup', (_req, _res, next) => (
   res.status(201).json(await auth.setup(req.body));
 }));
 
-// मालिक और दुकान के users (staff / admin) — सब यहीं से
+// मालिक और दुकान के users (staff / admin) — सब यहीं से.
+// Staff को सीधे token. मालिक / Admin को { step: 'totp' | 'setup', challenge } — फिर नीचे वाला दूसरा कदम.
 router.post('/login', loginLimit, validate(loginSchema), asyncHandler(async (req, res) => {
   const result = await auth.login(req.body.userId, req.body.password);
   clearRateLimit(req); // सही निकला — गिनती रीसेट
   res.json(result);
+}));
+
+// ---- Google Authenticator (मालिक / Admin) ----
+
+// दूसरा कदम: Authenticator का कोड या backup code → token
+router.post('/2fa/verify', loginLimit, validate(twofaLoginSchema), asyncHandler(async (req, res) => {
+  const result = await auth.completeLogin(req.body.challenge, req.body.code);
+  clearRateLimit(req);
+  res.json(result);
+}));
+
+// पहली बार: QR scan करके ऐप का कोड → token + backup codes (एक ही बार दिखते हैं)
+router.post('/2fa/setup', loginLimit, validate(twofaLoginSchema), asyncHandler(async (req, res) => {
+  const result = await auth.completeLogin(req.body.challenge, req.body.code, { setup: true });
+  clearRateLimit(req);
+  res.json(result);
+}));
+
+router.get('/2fa/status', requireAuth, requireAdmin, asyncHandler(async (req, res) => {
+  res.json(await twofa.status(auth.twofaSubjectOf(req.user)));
+}));
+
+// नए backup codes — पुराने सब बंद
+router.post('/2fa/backup-codes', requireAuth, requireAdmin, loginLimit, validate(twofaCodeSchema), asyncHandler(async (req, res) => {
+  const backupCodes = await twofa.regenerateBackupCodes(auth.twofaSubjectOf(req.user), req.body.code);
+  res.json({ backupCodes });
 }));
 
 // कौन लॉगिन है: { sub, name, role: owner | admin | staff }

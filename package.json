@@ -13,7 +13,8 @@
     "seed:admin": "node src/scripts/seed-admin.js",
     "seed:catalog": "node src/scripts/seed-catalog.js",
     "backup": "node src/scripts/backup.js",
-    "reset-password": "node src/scripts/reset-password.js"
+    "reset-password": "node src/scripts/reset-password.js",
+    "reset-2fa": "node src/scripts/reset-2fa.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.3",

@@ -6,9 +6,12 @@ import { User } from '../models/index.js';
 import { config } from '../config.js';
 import { badRequest, conflict, unauthorized, notFound } from '../lib/errors.js';
 import { sendMail } from './mailer.js';
+import * as twofa from './twofa.js';
 
 export const MIN_USERID = 3;
-export const MIN_PASSWORD = 4; // फ्रंटएंड जैसा ही नियम
+// फ्रंटएंड जैसा ही नियम. पहले 4 था — पुराने छोटे पासवर्ड से लॉगिन चलता रहता है,
+// सिर्फ नया पासवर्ड रखते समय यह लागू होता है.
+export const MIN_PASSWORD = 8;
 
 export const norm = (s) => String(s || '').trim().toLowerCase();
 
@@ -44,11 +47,14 @@ export async function isSetupDone() {
   return Boolean(await getAccount());
 }
 
+// tv (tokenVersion) — मालिक का पासवर्ड बदलते ही बाकी जगह के पुराने लॉगिन बेकार
 function signToken(acc) {
-  return jwt.sign({ sub: acc.userId, name: acc.userIdDisplay, role: 'owner' }, config.jwtSecret, {
+  return jwt.sign({ sub: acc.userId, name: acc.userIdDisplay, role: 'owner', tv: acc.tv || 0 }, config.jwtSecret, {
     expiresIn: config.jwtExpiresIn,
   });
 }
+
+const bumpTv = (acc) => ({ ...acc, tv: (acc.tv || 0) + 1 });
 
 // staff / admin का token — tv (tokenVersion) बदलते ही पुराना token बेकार
 function signUserToken(u) {
@@ -114,18 +120,72 @@ export async function login(userId, password) {
   if (acc && id === acc.userId) {
     // कौन सा गलत है यह नहीं बताते, वरना यूज़र ID अंदाज़ना आसान हो जाता है
     if (!bcrypt.compareSync(pw, acc.passHash)) throw unauthorized('यूज़र ID या पासवर्ड गलत है');
-    return { token: signToken(acc), userId: acc.userIdDisplay, role: 'owner', firstTime: false };
+    // मालिक — पासवर्ड के बाद Google Authenticator (token दूसरे कदम पर मिलता है)
+    return twofa.startChallenge(twofa.ownerSubject, { account: acc.userIdDisplay, tv: acc.tv || 0 });
   }
 
   const u = await User.findOne({ userId: id }).lean();
   if (u && bcrypt.compareSync(pw, u.passHash)) {
     if (u.active === false) throw unauthorized('यह खाता बंद कर दिया गया है — मालिक या Admin से बात करें');
-    await User.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date().toISOString() } });
-    return { token: signUserToken(u), userId: u.userIdDisplay, name: u.name, role: u.role, firstTime: false };
+    if (u.role === 'admin') {
+      return twofa.startChallenge(twofa.userSubject(u._id), { account: u.userIdDisplay, tv: u.tokenVersion || 0 });
+    }
+    return userLoginResult(u);
   }
 
   if (!acc) throw badRequest('अभी कोई खाता नहीं है — पहले /api/auth/setup से बनाएं');
   throw unauthorized('यूज़र ID या पासवर्ड गलत है');
+}
+
+async function userLoginResult(u) {
+  await User.updateOne({ _id: u._id }, { $set: { lastLoginAt: new Date().toISOString() } });
+  return { token: signUserToken(u), userId: u.userIdDisplay, name: u.name, role: u.role, firstTime: false };
+}
+
+/**
+ * लॉगिन का दूसरा कदम (मालिक / Admin). setup = पहली बार QR scan करके पक्का करना.
+ * code = Authenticator के 6 अंक, या backup code (setup में सिर्फ 6 अंक).
+ */
+export async function completeLogin(challengeId, code, { setup = false } = {}) {
+  const ch = await twofa.readChallenge(challengeId);
+  if (!ch) throw twofa.challengeExpired();
+  const subject = ch.kind === 'owner' ? twofa.ownerSubject : twofa.userSubject(ch.subjectId);
+
+  // बीच में खाता बदला/बंद हुआ हो तो आधा लॉगिन भी रद्द
+  const acc = ch.kind === 'owner' ? await getAccount() : null;
+  const u = ch.kind === 'user' ? await User.findById(ch.subjectId).lean() : null;
+  const stillValid = ch.kind === 'owner'
+    ? acc && (acc.tv || 0) === ch.tv
+    : u && u.active !== false && u.role === 'admin' && (u.tokenVersion || 0) === ch.tv;
+  if (!stillValid) {
+    await twofa.consumeChallenge(ch);
+    throw twofa.challengeExpired();
+  }
+
+  let extra = {};
+  if (setup) {
+    const backupCodes = await twofa.confirmSetup(subject, code);
+    if (!backupCodes) throw await twofa.failChallenge(ch);
+    extra = { backupCodes };
+  } else {
+    const ok = await twofa.verifyCode(subject, code);
+    if (!ok) throw await twofa.failChallenge(ch);
+    if (ok.usedBackupCode) extra = { backupCodesLeft: ok.backupCodesLeft };
+  }
+
+  if (!(await twofa.consumeChallenge(ch))) throw twofa.challengeExpired();
+
+  const result = ch.kind === 'owner'
+    ? { token: signToken(acc), userId: acc.userIdDisplay, role: 'owner', firstTime: false }
+    : await userLoginResult(u);
+  return { ...result, ...extra };
+}
+
+/** 2FA किसका — token वाले user से. staff का नहीं होता. */
+export function twofaSubjectOf(user) {
+  if (user?.role === 'owner') return twofa.ownerSubject;
+  if (user?.role === 'admin' && user.uid) return twofa.userSubject(user.uid);
+  return null;
 }
 
 /**
@@ -135,7 +195,9 @@ export async function login(userId, password) {
 export async function currentUser(payload) {
   if (!payload || payload.role === 'owner') {
     const acc = await getAccount();
-    if (!acc || !payload || acc.userId !== payload.sub) throw unauthorized('दोबारा लॉगिन करें');
+    if (!acc || !payload || acc.userId !== payload.sub || (acc.tv || 0) !== (payload.tv || 0)) {
+      throw unauthorized('दोबारा लॉगिन करें');
+    }
     return { sub: acc.userId, name: acc.userIdDisplay, role: 'owner' };
   }
   const u = payload.uid ? await User.findById(payload.uid).lean() : null;
@@ -163,13 +225,13 @@ export async function resetWithAnswer(userId, answer, newPassword) {
   if (!bcrypt.compareSync(norm(answer), acc.answerHash)) throw unauthorized('जवाब गलत है');
 
   const pw = checkPassword(newPassword);
-  await setMeta(META.ACCOUNT, { ...acc, passHash: bcrypt.hashSync(pw, 10) });
+  await setMeta(META.ACCOUNT, bumpTv({ ...acc, passHash: bcrypt.hashSync(pw, 10) }));
   return { reset: true };
 }
 
 /**
  * अपना पासवर्ड बदलना. user = लॉगिन वाला (req.user).
- * staff / admin का पासवर्ड बदलते ही उनके बाकी लॉगिन बंद होते हैं — इसलिए नया token लौटाते हैं.
+ * पासवर्ड बदलते ही बाकी सब जगह के लॉगिन बंद होते हैं — इसलिए इस device के लिए नया token लौटाते हैं.
  */
 export async function changePassword(oldPassword, newPassword, user = null) {
   if (user && user.role !== 'owner') {
@@ -193,8 +255,9 @@ export async function changePassword(oldPassword, newPassword, user = null) {
     throw unauthorized('पुराना पासवर्ड गलत है');
   }
   const pw = checkPassword(newPassword);
-  await setMeta(META.ACCOUNT, { ...acc, passHash: bcrypt.hashSync(pw, 10) });
-  return { changed: true };
+  const next = bumpTv({ ...acc, passHash: bcrypt.hashSync(pw, 10) });
+  await setMeta(META.ACCOUNT, next);
+  return { changed: true, token: signToken(next) };
 }
 
 export async function changeUserId(password, newUserId) {
@@ -316,7 +379,7 @@ export async function resetWithOtp(userId, otp, newPassword) {
   }
 
   await deleteMeta(META.RESET);
-  await setMeta(META.ACCOUNT, { ...acc, passHash: bcrypt.hashSync(pw, 10) });
+  await setMeta(META.ACCOUNT, bumpTv({ ...acc, passHash: bcrypt.hashSync(pw, 10) }));
   return { reset: true };
 }
 
@@ -346,6 +409,7 @@ export async function seedAccount(userId, password) {
     userId: norm(id),
     userIdDisplay: id,
     passHash: bcrypt.hashSync(pw, 10),
+    tv: (existing?.tv || 0) + 1, // terminal से बदला — पुराने सब लॉगिन बंद
     createdAt: existing?.createdAt || new Date().toISOString(),
   };
   await setMeta(META.ACCOUNT, acc);
